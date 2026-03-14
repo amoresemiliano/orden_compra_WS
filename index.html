@@ -7,13 +7,32 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- Login Screen -->
+    <div id="login-screen" class="login-container">
+        <div class="login-box">
+            <img src="logo.png" alt="El Criollo" class="logo">
+            <h2>Acceso al Sistema</h2>
+            <input type="text" id="login-user" placeholder="Usuario">
+            <input type="password" id="login-pass" placeholder="Contraseña">
+            <button class="btn-secondary" onclick="auth.login()">Ingresar</button>
+            <p id="login-error" class="error-msg"></p>
+        </div>
+    </div>
+
+    <!-- Main App (Hidden by default) -->
+    <div id="app-container" style="display: none;">
     <header class="header">
         <img src="logo.png" alt="El Criollo" class="logo">
+        <div class="user-info">
+            <span id="current-user-display"></span>
+            <button class="btn-logout" onclick="auth.logout()">Salir</button>
+        </div>
     </header>
 
     <nav class="tab-nav">
         <button class="tab-btn active" onclick="ui.openTab('pedidos')">Pedidos</button>
         <button class="tab-btn" onclick="ui.openTab('historial')">Historial</button>
+        <button class="tab-btn" id="tab-btn-config" onclick="ui.openTab('configuracion')" style="display: none;">Configuración</button>
     </nav>
 
     <main class="container">
@@ -27,8 +46,11 @@
                     <input type="text" id="provider-name" placeholder="Nombre (Ej: Frutas Pepe)">
                     <input type="tel" id="provider-phone" placeholder="WhatsApp (Ej: 34600000000)">
                 </div>
-                <label>Mensaje Personalizado</label>
-                <textarea id="custom-message">Buenos días, le envio la orden de compra de El Criollo, muchas gracias!</textarea>
+                <label>Mensaje de Inicio</label>
+                <textarea id="custom-message-intro">Buenos días, le envío la orden de compra de El Criollo, muchas gracias!</textarea>
+                
+                <label>Mensaje de Cierre</label>
+                <textarea id="custom-message-outro">Quedo a la espera de confirmación. Saludos cordiales.</textarea>
             </div>
 
             <div class="order-form">
@@ -57,21 +79,72 @@
                             <th>Proveedor</th>
                             <th>Productos</th>
                             <th>Acción</th>
+                            <th>Usuario</th>
                         </tr>
                     </thead>
                     <tbody id="history-body"></tbody>
                 </table>
             </div>
         </section>
+
+        <section id="configuracion" class="tab-content">
+            <div class="config-section">
+                <h3>Administración del Sistema</h3>
+                <p>Opciones de administrador para gestionar usuarios, productos, y categorías.</p>
+                <div class="form-row" style="margin-top: 15px;">
+                    <button class="btn-secondary" onclick="alert('Funcionalidad de gestión de Usuarios en desarrollo')">Gestionar Usuarios</button>
+                    <button class="btn-secondary" onclick="alert('Funcionalidad de Productos/Categorías en desarrollo')">Gestionar Productos</button>
+                </div>
+                <div class="form-row" style="margin-top: 15px;">
+                    <button class="btn-secondary" onclick="ui.openProviderManager()">Administrar Proveedores</button>
+                </div>
+            </div>
+        </section>
     </main>
 
     <div id="modal-detalle" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="ui.closeModal()">&times;</span>
+            <span class="close" onclick="ui.closeModal('modal-detalle')">&times;</span>
             <h3 id="modal-title"></h3>
             <div id="modal-items"></div>
         </div>
     </div>
+
+    <!-- Modal Admin Proveedores -->
+    <div id="modal-proveedores" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close" onclick="ui.closeModal('modal-proveedores')">&times;</span>
+            <h3>Administrar Proveedores</h3>
+            <div class="form-row" style="margin-top: 15px;">
+                <input type="text" id="admin-prov-name" placeholder="Nombre Proveedor">
+                <input type="text" id="admin-prov-phone" placeholder="WhatsApp">
+            </div>
+            <div class="form-row">
+                <input type="text" id="admin-prov-cif" placeholder="CIF">
+                <input type="text" id="admin-prov-address" placeholder="Domicilio">
+            </div>
+            <div class="form-row">
+                <input type="text" id="admin-prov-payment" placeholder="Período de pagos">
+                <button class="btn-secondary" onclick="ui.saveAdminProvider()">Guardar</button>
+            </div>
+            
+            <div class="table-responsive" style="margin-top: 20px;">
+                <table class="excel-table">
+                    <thead>
+                        <tr>
+                            <th>Nombre</th>
+                            <th>Teléfono</th>
+                            <th>CIF</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="admin-prov-list"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    </div> <!-- End Main App Container -->
 
     <script src="app.js"></script>
 </body>

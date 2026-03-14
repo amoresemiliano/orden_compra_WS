@@ -1,3 +1,53 @@
+// AUTENTICACIÓN Y ROLES (Simulado)
+const auth = {
+    users: [
+        { username: 'admin', password: '123', role: 'admin', name: 'Administrador' },
+        { username: 'user', password: '123', role: 'user', name: 'Usuario Regular' }
+    ],
+
+    login() {
+        const u = document.getElementById('login-user').value;
+        const p = document.getElementById('login-pass').value;
+        const err = document.getElementById('login-error');
+        
+        const user = this.users.find(x => x.username === u && x.password === p);
+        if (user) {
+            localStorage.setItem('loggedUser', JSON.stringify({ username: user.username, role: user.role, name: user.name }));
+            this.checkAuth();
+        } else {
+            err.innerText = "Usuario o contraseña incorrectos.";
+        }
+    },
+
+    logout() {
+        localStorage.removeItem('loggedUser');
+        this.checkAuth();
+    },
+
+    checkAuth() {
+        const user = JSON.parse(localStorage.getItem('loggedUser'));
+        if (user) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('app-container').style.display = 'block';
+            document.getElementById('current-user-display').innerText = `Hola, ${user.name}`;
+            
+            // Mostrar/ocultar tab de configuración según el rol
+            const configTab = document.getElementById('tab-btn-config');
+            if (configTab) {
+                configTab.style.display = user.role === 'admin' ? 'block' : 'none';
+            }
+            ui.openTab('pedidos');
+        } else {
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('app-container').style.display = 'none';
+        }
+    },
+    
+    getCurrentUser() {
+        return JSON.parse(localStorage.getItem('loggedUser')) || { name: 'Desconocido' };
+    }
+};
+
 // DATOS DE PRODUCTOS
 const PRODUCT_MASTER = [
     { name: "Limón", unit: "ud" }, { name: "Aguacate", unit: "kg" },
@@ -50,7 +100,8 @@ const orderManager = {
     sendOrder() {
         const phone = document.getElementById('provider-phone').value.replace(/\s+/g, '');
         const name = document.getElementById('provider-name').value || "Proveedor";
-        const msgIntro = document.getElementById('custom-message').value;
+        const msgIntro = document.getElementById('custom-message-intro').value;
+        const msgOutro = document.getElementById('custom-message-outro').value;
 
         if (!phone || currentOrder.length === 0) return alert("Falta el teléfono o productos.");
 
@@ -58,6 +109,7 @@ const orderManager = {
 
         let fullMsg = `${msgIntro}\n\n`;
         currentOrder.forEach(i => fullMsg += `• ${i.name}: ${i.qty} ${i.unit}\n`);
+        fullMsg += `\n${msgOutro}`;
 
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(fullMsg)}`, '_blank');
 
@@ -70,11 +122,13 @@ const orderManager = {
 
     saveToHistory(provider) {
         const history = JSON.parse(localStorage.getItem('orderHistory')) || [];
+        const user = auth.getCurrentUser();
         const order = {
             ref: `#${Math.floor(1000 + Math.random() * 9000)}`,
             date: new Date().toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }),
             provider,
-            items: [...currentOrder]
+            items: [...currentOrder],
+            user: user.name
         };
         history.push(order);
         localStorage.setItem('orderHistory', JSON.stringify(history));
@@ -96,7 +150,7 @@ const ui = {
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(tabId).classList.add('active');
-        event.currentTarget.classList.add('active');
+        if (event) event.currentTarget.classList.add('active');
         if (tabId === 'historial') this.renderHistory();
     },
 
@@ -137,7 +191,8 @@ const ui = {
                     <td onclick="ui.showDetail(${originalIdx})">${o.date}</td>
                     <td onclick="ui.showDetail(${originalIdx})">${o.provider}</td>
                     <td class="text-truncate">${o.items.map(i => i.name).join(', ')}</td>
-                    <td><button class="btn-duplicate" onclick="ui.duplicate(${originalIdx})">Duplicar</button></td>
+                    <td><button class="btn-duplicate" onclick="ui.duplicate(${originalIdx})">Reutilizar</button></td>
+                    <td>${o.user || 'N/A'}</td>
                 </tr>
             `;
         }).join('');
@@ -151,18 +206,82 @@ const ui = {
         document.getElementById('modal-detalle').style.display = 'block';
     },
 
-    closeModal() { document.getElementById('modal-detalle').style.display = 'none'; },
+    closeModal(modalId) { 
+        document.getElementById(modalId).style.display = 'none'; 
+    },
 
     duplicate(idx) {
         const history = JSON.parse(localStorage.getItem('orderHistory'));
         currentOrder = JSON.parse(JSON.stringify(history[idx].items)); // Deep copy
         this.openTab('pedidos');
         orderManager.render();
+    },
+
+    openProviderManager() {
+        document.getElementById('modal-proveedores').style.display = 'block';
+        this.renderAdminProviders();
+    },
+
+    renderAdminProviders() {
+        const providers = JSON.parse(localStorage.getItem('providers')) || [];
+        const tbody = document.getElementById('admin-prov-list');
+        tbody.innerHTML = providers.map((p, idx) => `
+            <tr>
+                <td>${p.name}</td>
+                <td>${p.phone}</td>
+                <td>${p.cif || '-'}</td>
+                <td>
+                    <button class="btn-remove" onclick="ui.removeAdminProvider(${idx})">Eliminar</button>
+                </td>
+            </tr>
+        `).join('');
+    },
+
+    saveAdminProvider() {
+        const name = document.getElementById('admin-prov-name').value;
+        const phone = document.getElementById('admin-prov-phone').value;
+        const cif = document.getElementById('admin-prov-cif').value;
+        const address = document.getElementById('admin-prov-address').value;
+        const payment = document.getElementById('admin-prov-payment').value;
+
+        if(!name || !phone) return alert("Nombre y Teléfono son obligatorios");
+
+        let providers = JSON.parse(localStorage.getItem('providers')) || [];
+        // Si ya existe por telefono, actualizamos
+        const existIdx = providers.findIndex(p => p.phone === phone);
+        if(existIdx >= 0) {
+            providers[existIdx] = { ...providers[existIdx], name, cif, address, payment };
+        } else {
+            providers.push({ name, phone, cif, address, payment });
+        }
+        
+        localStorage.setItem('providers', JSON.stringify(providers));
+        
+        // Limpiar
+        document.getElementById('admin-prov-name').value = '';
+        document.getElementById('admin-prov-phone').value = '';
+        document.getElementById('admin-prov-cif').value = '';
+        document.getElementById('admin-prov-address').value = '';
+        document.getElementById('admin-prov-payment').value = '';
+
+        this.renderAdminProviders();
+        this.loadProviders(); // Update the select in order form
+    },
+
+    removeAdminProvider(idx) {
+        if(confirm("¿Seguro que deseas eliminar este proveedor?")) {
+            let providers = JSON.parse(localStorage.getItem('providers')) || [];
+            providers.splice(idx, 1);
+            localStorage.setItem('providers', JSON.stringify(providers));
+            this.renderAdminProviders();
+            this.loadProviders();
+        }
     }
 };
 
 // INICIALIZACIÓN
 (function init() {
+    auth.checkAuth();
     const pSelect = document.getElementById('product-select');
     pSelect.innerHTML = '<option value="" disabled selected>Seleccionar Producto...</option>';
     PRODUCT_MASTER.forEach((p, i) => pSelect.innerHTML += `<option value="${i}">${p.name}</option>`);

@@ -1,5 +1,5 @@
 :root {
-    --primary: #2e7d32;
+    --primary: #E93842; /* Rojo El Criollo */
     --whatsapp: #25d366;
     --dark: #333;
     --light-bg: #f5f5f5;
@@ -12,6 +12,19 @@ body { background: var(--light-bg); color: var(--dark); padding-bottom: 30px; }
 
 .header { text-align: center; background: white; padding: 15px; border-bottom: 2px solid var(--primary); }
 .logo { height: 50px; }
+
+/* Login Styles */
+.login-container { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--light-bg); }
+.login-box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 90%; max-width: 400px; text-align: center; }
+.login-box .logo { margin-bottom: 20px; }
+.login-box h2 { color: var(--primary); margin-bottom: 20px; }
+.error-msg { color: #d32f2f; font-size: 0.9rem; margin-top: 10px; }
+
+/* User Info */
+.header { text-align: center; background: white; padding: 15px; border-bottom: 2px solid var(--primary); position: relative; }
+.user-info { position: absolute; right: 15px; top: 15px; display: flex; align-items: center; gap: 10px; font-size: 0.9rem; }
+.btn-logout { background: transparent; border: 1px solid var(--primary); color: var(--primary); padding: 5px 10px; border-radius: 5px; cursor: pointer; }
+.btn-logout:hover { background: var(--primary); color: white; }
 
 /* Tabs */
 .tab-nav { display: flex; background: var(--dark); sticky: top 0; z-index: 5; }
