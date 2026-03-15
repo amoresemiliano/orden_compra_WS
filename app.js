@@ -1,21 +1,87 @@
-// AUTENTICACIÓN Y ROLES (Simulado)
-const auth = {
-    users: [
-        { username: 'admin', password: '123', role: 'admin', name: 'Administrador' },
-        { username: 'user', password: '123', role: 'user', name: 'Usuario Regular' }
-    ],
+// CONFIGURACIÓN API
+// Cambiar a la URL de tu servidor en producción (ej. 'https://vegendigital.com/sistemas/comprasWS/backend/')
+const API_URL = 'https://vegendigital.com/sistemas/comprasWS/backend/';
 
-    login() {
+// FUNCIONES DE PETICIÓN (AJAX con Fetch API)
+const api = {
+    async get(endpoint) {
+        try {
+            const res = await fetch(API_URL + endpoint);
+            return await res.json();
+        } catch (e) {
+            console.error('Error GET:', e);
+            return null;
+        }
+    },
+    async post(endpoint, data) {
+        try {
+            const res = await fetch(API_URL + endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return await res.json();
+        } catch (e) {
+            console.error('Error POST:', e);
+            return null;
+        }
+    },
+    async put(endpoint, data) {
+        try {
+            const res = await fetch(API_URL + endpoint, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return await res.json();
+        } catch (e) {
+            console.error('Error PUT:', e);
+            return null;
+        }
+    },
+    async delete(endpoint, id) {
+        try {
+            const res = await fetch(API_URL + endpoint, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id })
+            });
+            return await res.json();
+        } catch (e) {
+            console.error('Error DELETE:', e);
+            return null;
+        }
+    }
+};
+
+// ESTADO GLOBAL CACHEADO (para no consultar DB constantemente al crear órdenes)
+let cache = {
+    products: [],
+    providers: [],
+    lists: {}
+};
+
+async function loadCache() {
+    cache.products = await api.get('products.php') || [];
+    cache.providers = await api.get('providers.php') || [];
+    cache.lists = await api.get('lists.php') || {};
+}
+
+// AUTENTICACIÓN Y ROLES (Real con PHP Backend)
+const auth = {
+    async login() {
         const u = document.getElementById('login-user').value;
         const p = document.getElementById('login-pass').value;
         const err = document.getElementById('login-error');
         
-        const user = this.users.find(x => x.username === u && x.password === p);
-        if (user) {
-            localStorage.setItem('loggedUser', JSON.stringify({ username: user.username, role: user.role, name: user.name }));
+        err.innerText = "Cargando...";
+        const res = await api.post('login.php', { username: u, password: p });
+        
+        if (res && res.success) {
+            localStorage.setItem('loggedUser', JSON.stringify({ username: res.user.username, role: res.user.role, name: res.user.name, id: res.user.id }));
             this.checkAuth();
         } else {
-            err.innerText = "Usuario o contraseña incorrectos.";
+            err.innerText = res?.message || "Error al conectar con el servidor.";
         }
     },
 
@@ -24,7 +90,7 @@ const auth = {
         this.checkAuth();
     },
 
-    checkAuth() {
+    async checkAuth() {
         const user = JSON.parse(localStorage.getItem('loggedUser'));
         if (user) {
             document.getElementById('login-screen').style.display = 'none';
@@ -36,6 +102,10 @@ const auth = {
             if (configTab) {
                 configTab.style.display = user.role === 'admin' ? 'block' : 'none';
             }
+            
+            await loadCache();
+            ui.loadProductsSelect();
+            ui.loadProviders();
             ui.openTab('pedidos');
         } else {
             document.getElementById('login-screen').style.display = 'flex';
@@ -48,13 +118,8 @@ const auth = {
     }
 };
 
-// DATOS DE PRODUCTOS
-const PRODUCT_MASTER = [
-    { name: "Limón", unit: "ud" }, { name: "Aguacate", unit: "kg" },
-    { name: "Cebolla", unit: "kg" }, { name: "Cebolla Morada", unit: "kg" },
-    { name: "Piña", unit: "kg" }, { name: "Pimiento Rojo", unit: "kg" },
-    { name: "Pimiento Verde", unit: "kg" }, { name: "Cilantro", unit: "ud" }
-];
+// UTILIDADES PARA CRUD (ya no necesitamos id gen en backend normal, excepto para CSV local temporal)
+const generateId = () => Date.now().toString();
 
 // ESTADO DE LA APLICACIÓN
 let currentOrder = [];
@@ -62,15 +127,17 @@ let currentOrder = [];
 // MÓDULO DE LÓGICA DE ÓRDENES (Principios SOLID)
 const orderManager = {
     addItem() {
-        const pIdx = document.getElementById('product-select').value;
+        const pId = document.getElementById('product-select').value;
         const qty = document.getElementById('quantity').value;
+        const products = cache.products;
         
-        if (pIdx !== "" && qty > 0) {
-            const product = PRODUCT_MASTER[pIdx];
-            // Si ya existe, avisar o simplemente añadir
-            currentOrder.push({ ...product, qty: parseFloat(qty) });
-            this.render();
-            document.getElementById('quantity').value = "";
+        if (pId !== "" && qty > 0) {
+            const product = products.find(p => p.id == pId); // '==' because HTML values are strings
+            if (product) {
+                currentOrder.push({ ...product, qty: parseFloat(qty) });
+                this.render();
+                document.getElementById('quantity').value = "";
+            }
         }
     },
 
@@ -97,7 +164,7 @@ const orderManager = {
         `).join('');
     },
 
-    sendOrder() {
+    async sendOrder() {
         const phone = document.getElementById('provider-phone').value.replace(/\s+/g, '');
         const name = document.getElementById('provider-name').value || "Proveedor";
         const msgIntro = document.getElementById('custom-message-intro').value;
@@ -105,7 +172,7 @@ const orderManager = {
 
         if (!phone || currentOrder.length === 0) return alert("Falta el teléfono o productos.");
 
-        this.saveProvider(name, phone);
+        await this.saveProvider(name, phone);
 
         let fullMsg = `${msgIntro}\n\n`;
         currentOrder.forEach(i => fullMsg += `• ${i.name}: ${i.qty} ${i.unit}\n`);
@@ -113,33 +180,30 @@ const orderManager = {
 
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(fullMsg)}`, '_blank');
 
-        this.saveToHistory(name);
+        await this.saveToHistory(name);
         
         // Limpiar
         currentOrder = [];
         this.render();
     },
 
-    saveToHistory(provider) {
-        const history = JSON.parse(localStorage.getItem('orderHistory')) || [];
+    async saveToHistory(provider) {
         const user = auth.getCurrentUser();
-        const order = {
+        const orderData = {
             ref: `#${Math.floor(1000 + Math.random() * 9000)}`,
-            date: new Date().toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }),
-            provider,
-            items: [...currentOrder],
-            user: user.name
+            provider: provider,
+            user: user.name,
+            items: currentOrder.map(i => ({ name: i.name, qty: i.qty, unit: i.unit }))
         };
-        history.push(order);
-        localStorage.setItem('orderHistory', JSON.stringify(history));
+        await api.post('orders.php', orderData);
     },
 
-    saveProvider(name, phone) {
-        let providers = JSON.parse(localStorage.getItem('providers')) || [];
-        if (!providers.find(p => p.phone === phone)) {
-            providers.push({ name, phone });
-            localStorage.setItem('providers', JSON.stringify(providers));
-            ui.loadProviders();
+    async saveProvider(name, phone) {
+        // Solo guarda si no existe en el cache (que es como venía antes)
+        if (!cache.providers.find(p => p.phone === phone)) {
+            await api.post('providers.php', { name, phone });
+            await loadCache(); // Recargar providers cache
+            ui.loadProviders(); // Actualizar el select
         }
     }
 };
@@ -150,22 +214,29 @@ const ui = {
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(tabId).classList.add('active');
-        if (event) event.currentTarget.classList.add('active');
+        event.currentTarget.classList.add('active');
         if (tabId === 'historial') this.renderHistory();
+    },
+
+    loadProductsSelect() {
+        const pSelect = document.getElementById('product-select');
+        pSelect.innerHTML = '<option value="" disabled selected>Seleccionar Producto...</option>';
+        cache.products.forEach(p => pSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`);
     },
 
     loadProviders() {
         const sel = document.getElementById('provider-select');
-        const providers = JSON.parse(localStorage.getItem('providers')) || [];
+        const providers = cache.providers;
         sel.innerHTML = '<option value="new">-- Nuevo Proveedor --</option>';
-        providers.forEach((p, idx) => {
-            sel.innerHTML += `<option value="${idx}">${p.name}</option>`;
+        // En backend guardamos con ID original de DB. 
+        providers.forEach((p) => {
+            sel.innerHTML += `<option value="${p.id}">${p.name}</option>`;
         });
     },
 
     handleProviderChange() {
         const sel = document.getElementById('provider-select');
-        const providers = JSON.parse(localStorage.getItem('providers')) || [];
+        const providers = cache.providers;
         const fields = document.getElementById('new-provider-fields');
         
         if (sel.value === 'new') {
@@ -174,22 +245,50 @@ const ui = {
             document.getElementById('provider-phone').value = "";
         } else {
             fields.style.display = 'none';
-            const p = providers[sel.value];
-            document.getElementById('provider-name').value = p.name;
-            document.getElementById('provider-phone').value = p.phone;
+            // Buscar en el cache el proveedor por ID
+            const p = providers.find(prov => prov.id == sel.value);
+            if(p) {
+                document.getElementById('provider-name').value = p.name;
+                document.getElementById('provider-phone').value = p.phone;
+            }
         }
     },
 
-    renderHistory() {
+    async renderHistory() {
         const body = document.getElementById('history-body');
-        const history = JSON.parse(localStorage.getItem('orderHistory')) || [];
-        body.innerHTML = history.slice().reverse().map((o, idx) => {
-            const originalIdx = history.length - 1 - idx;
+        body.innerHTML = '<tr><td colspan="6">Cargando...</td></tr>';
+        
+        const user = auth.getCurrentUser();
+        // Request history sending role and username to filter on backend securely
+        const history = await api.get(`orders.php?role=${encodeURIComponent(user.role)}&user=${encodeURIComponent(user.name)}`) || [];
+        
+        window._currentHistory = history; // Cache total received history
+        
+        // Show/Hide User filter input if admin
+        const filterUser = document.getElementById('filter-user');
+        if (filterUser) {
+            filterUser.style.display = user.role === 'admin' ? 'block' : 'none';
+        }
+        
+        this.renderHistoryTable(history);
+    },
+
+    renderHistoryTable(historyArray) {
+        const body = document.getElementById('history-body');
+        
+        if (historyArray.length === 0) {
+            body.innerHTML = '<tr><td colspan="6">No hay pedidos registrados</td></tr>';
+            return;
+        }
+
+        body.innerHTML = historyArray.map((o) => {
+            // Find real index in total cache for duplicate/details functions
+            const originalIdx = window._currentHistory.findIndex(h => h.id === o.id);
             return `
                 <tr>
-                    <td onclick="ui.showDetail(${originalIdx})"><strong>${o.ref}</strong></td>
-                    <td onclick="ui.showDetail(${originalIdx})">${o.date}</td>
-                    <td onclick="ui.showDetail(${originalIdx})">${o.provider}</td>
+                    <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer"><strong>${o.ref}</strong></td>
+                    <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer">${o.date.split(' ')[0]}</td>
+                    <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer">${o.provider}</td>
                     <td class="text-truncate">${o.items.map(i => i.name).join(', ')}</td>
                     <td><button class="btn-duplicate" onclick="ui.duplicate(${originalIdx})">Reutilizar</button></td>
                     <td>${o.user || 'N/A'}</td>
@@ -198,8 +297,71 @@ const ui = {
         }).join('');
     },
 
+    filterHistory() {
+        const ref = document.getElementById('filter-ref').value.toLowerCase();
+        const prov = document.getElementById('filter-provider').value.toLowerCase();
+        const userFilter = document.getElementById('filter-user').value.toLowerCase();
+        const dateFilter = document.getElementById('filter-date').value;
+
+        const history = window._currentHistory || [];
+        const filtered = history.filter(o => {
+            const matchRef = o.ref.toLowerCase().includes(ref);
+            const matchProv = o.provider.toLowerCase().includes(prov);
+            const matchUser = o.user.toLowerCase().includes(userFilter);
+            
+            let matchDate = true;
+            if (dateFilter) {
+                // Ensure date format matching (YYYY-MM-DD to backend date output depending on SQL timestamp format)
+                matchDate = o.date.startsWith(dateFilter);
+            }
+            
+            return matchRef && matchProv && matchUser && matchDate;
+        });
+
+        this.renderHistoryTable(filtered);
+    },
+
+    clearHistoryFilters() {
+        document.getElementById('filter-ref').value = '';
+        document.getElementById('filter-provider').value = '';
+        document.getElementById('filter-user').value = '';
+        document.getElementById('filter-date').value = '';
+        this.renderHistoryTable(window._currentHistory || []);
+    },
+
+    sortHistory(column) {
+        if (!window._currentHistory) return;
+        
+        // Determinar dirección del sort
+        if (this._lastSortCol === column) {
+            this._sortAsc = !this._sortAsc;
+        } else {
+            this._lastSortCol = column;
+            this._sortAsc = true;
+        }
+
+        window._currentHistory.sort((a, b) => {
+            let valA = a[column] ? a[column].toString().toLowerCase() : '';
+            let valB = b[column] ? b[column].toString().toLowerCase() : '';
+            
+            // Si la columna es fecha, convertir a ms para comparar
+            if (column === 'date') {
+                valA = new Date(a[column]).getTime();
+                valB = new Date(b[column]).getTime();
+            }
+
+            if (valA < valB) return this._sortAsc ? -1 : 1;
+            if (valA > valB) return this._sortAsc ? 1 : -1;
+            return 0;
+        });
+
+        // Aplicar los filtros actuales (que también re-renderiza la tabla con el nuevo orden)
+        this.filterHistory();
+    },
+
     showDetail(idx) {
-        const history = JSON.parse(localStorage.getItem('orderHistory'));
+        const history = window._currentHistory;
+        if(!history || !history[idx]) return;
         const o = history[idx];
         document.getElementById('modal-title').innerText = `${o.ref} - ${o.provider}`;
         document.getElementById('modal-items').innerHTML = o.items.map(i => `<p>• ${i.name}: ${i.qty} ${i.unit}</p>`).join('');
@@ -210,80 +372,421 @@ const ui = {
         document.getElementById(modalId).style.display = 'none'; 
     },
 
+    toggleCsv(type) {
+        const exp = document.getElementById('export-options');
+        const imp = document.getElementById('import-options');
+        if (type === 'export') {
+            exp.style.display = exp.style.display === 'none' ? 'flex' : 'none';
+            imp.style.display = 'none';
+        } else if (type === 'import') {
+            imp.style.display = imp.style.display === 'none' ? 'flex' : 'none';
+            exp.style.display = 'none';
+        }
+    },
+
     duplicate(idx) {
-        const history = JSON.parse(localStorage.getItem('orderHistory'));
+        const history = window._currentHistory;
+        if(!history || !history[idx]) return;
         currentOrder = JSON.parse(JSON.stringify(history[idx].items)); // Deep copy
         this.openTab('pedidos');
         orderManager.render();
     },
 
-    openProviderManager() {
-        document.getElementById('modal-proveedores').style.display = 'block';
-        this.renderAdminProviders();
+    populateSelect(selectId, dbListType, placeholder) {
+        const select = document.getElementById(selectId);
+        const data = cache.lists[dbListType] || [];
+        
+        let html = `<option value="">${placeholder}</option>`;
+        
+        // El value siempre es string en DB para family/category, usamos name.
+        // Pero para UI interna mantenemos name
+        html += data.map(item => `<option value="${item.name}">${item.name}</option>`).join('');
+        
+        html += `<option value="__new__">+ Crear nuevo...</option>`;
+        select.innerHTML = html;
+        
+        select.onchange = (e) => this.handleNewOption(e.target, dbListType);
     },
 
-    renderAdminProviders() {
-        const providers = JSON.parse(localStorage.getItem('providers')) || [];
+    async handleNewOption(selectElement, dbListType) {
+        if (selectElement.value === '__new__') {
+            const newItemName = prompt("Ingrese el nombre del nuevo elemento:");
+            if (newItemName && newItemName.trim() !== '') {
+                const newValue = newItemName.trim();
+                
+                await api.post('lists.php', { list_type: dbListType, value: newValue });
+                await loadCache();
+                
+                // Regenerar opciones
+                const placeholder = selectElement.options[0].text;
+                this.populateSelect(selectElement.id, dbListType, placeholder);
+                
+                // Dejar seleccionado
+                selectElement.value = newValue;
+            } else {
+                selectElement.value = "";
+            }
+        }
+    },
+
+    async openProviderManager() {
+        document.getElementById('modal-proveedores').style.display = 'block';
+        this.populateSelect('admin-prov-family', 'families', 'Familia Asociada...');
+        this.populateSelect('admin-prov-payment', 'payment_methods', 'Forma de Pago...');
+        await this.renderAdminProviders();
+    },
+
+    async renderAdminProviders() {
+        cache.providers = await api.get('providers.php') || [];
+        const providers = cache.providers;
         const tbody = document.getElementById('admin-prov-list');
         tbody.innerHTML = providers.map((p, idx) => `
             <tr>
                 <td>${p.name}</td>
                 <td>${p.phone}</td>
-                <td>${p.cif || '-'}</td>
+                <td>${p.city || '-'}</td>
+                <td>${p.family || '-'}</td>
                 <td>
-                    <button class="btn-remove" onclick="ui.removeAdminProvider(${idx})">Eliminar</button>
+                    <button class="btn-duplicate" onclick="ui.editAdminProvider(${p.id})">Editar</button>
+                    <button class="btn-remove" onclick="ui.removeAdminProvider(${p.id})">Eliminar</button>
                 </td>
             </tr>
         `).join('');
     },
 
-    saveAdminProvider() {
+    async saveAdminProvider() {
+        const id = document.getElementById('admin-prov-id').value;
         const name = document.getElementById('admin-prov-name').value;
         const phone = document.getElementById('admin-prov-phone').value;
+        const email = document.getElementById('admin-prov-email').value;
         const cif = document.getElementById('admin-prov-cif').value;
         const address = document.getElementById('admin-prov-address').value;
+        const city = document.getElementById('admin-prov-city').value;
+        const contact = document.getElementById('admin-prov-contact').value;
+        const family = document.getElementById('admin-prov-family').value;
         const payment = document.getElementById('admin-prov-payment').value;
 
         if(!name || !phone) return alert("Nombre y Teléfono son obligatorios");
 
-        let providers = JSON.parse(localStorage.getItem('providers')) || [];
-        // Si ya existe por telefono, actualizamos
-        const existIdx = providers.findIndex(p => p.phone === phone);
-        if(existIdx >= 0) {
-            providers[existIdx] = { ...providers[existIdx], name, cif, address, payment };
+        const payload = { name, phone, email, cif, address, city, contact, family, payment };
+        
+        if(id) {
+            payload.id = id;
+            await api.put('providers.php', payload);
         } else {
-            providers.push({ name, phone, cif, address, payment });
+            await api.post('providers.php', payload);
         }
         
-        localStorage.setItem('providers', JSON.stringify(providers));
-        
-        // Limpiar
-        document.getElementById('admin-prov-name').value = '';
-        document.getElementById('admin-prov-phone').value = '';
-        document.getElementById('admin-prov-cif').value = '';
-        document.getElementById('admin-prov-address').value = '';
-        document.getElementById('admin-prov-payment').value = '';
-
-        this.renderAdminProviders();
-        this.loadProviders(); // Update the select in order form
+        this.clearForm('prov');
+        await this.renderAdminProviders();
+        await loadCache();
+        this.loadProviders();
     },
 
-    removeAdminProvider(idx) {
+    editAdminProvider(id) {
+        const providers = cache.providers;
+        const p = providers.find(x => x.id == id);
+        if(!p) return;
+        document.getElementById('admin-prov-id').value = p.id;
+        document.getElementById('admin-prov-name').value = p.name;
+        document.getElementById('admin-prov-phone').value = p.phone;
+        document.getElementById('admin-prov-email').value = p.email || '';
+        document.getElementById('admin-prov-cif').value = p.cif || '';
+        document.getElementById('admin-prov-address').value = p.address || '';
+        document.getElementById('admin-prov-city').value = p.city || '';
+        document.getElementById('admin-prov-contact').value = p.contact || '';
+        document.getElementById('admin-prov-family').value = p.family || '';
+        document.getElementById('admin-prov-payment').value = p.payment || '';
+    },
+
+    async removeAdminProvider(id) {
         if(confirm("¿Seguro que deseas eliminar este proveedor?")) {
-            let providers = JSON.parse(localStorage.getItem('providers')) || [];
-            providers.splice(idx, 1);
-            localStorage.setItem('providers', JSON.stringify(providers));
-            this.renderAdminProviders();
+            await api.delete('providers.php', id);
+            await this.renderAdminProviders();
+            await loadCache();
             this.loadProviders();
         }
+    },
+
+    clearForm(type) {
+        if(type === 'prov') {
+            document.getElementById('admin-prov-id').value = '';
+            document.getElementById('admin-prov-name').value = '';
+            document.getElementById('admin-prov-phone').value = '';
+            document.getElementById('admin-prov-email').value = '';
+            document.getElementById('admin-prov-cif').value = '';
+            document.getElementById('admin-prov-address').value = '';
+            document.getElementById('admin-prov-city').value = '';
+            document.getElementById('admin-prov-contact').value = '';
+            document.getElementById('admin-prov-family').value = '';
+            document.getElementById('admin-prov-payment').value = '';
+        } else if(type === 'prod') {
+            document.getElementById('admin-prod-id').value = '';
+            document.getElementById('admin-prod-name').value = '';
+            document.getElementById('admin-prod-provider').value = '';
+            document.getElementById('admin-prod-family').value = '';
+            document.getElementById('admin-prod-category').value = '';
+            document.getElementById('admin-prod-subcategory').value = '';
+            document.getElementById('admin-prod-unit').value = '';
+            document.getElementById('admin-prod-price').value = '';
+        } else if(type === 'user') {
+            document.getElementById('admin-user-id').value = '';
+            document.getElementById('admin-user-fullname').value = '';
+            document.getElementById('admin-user-name').value = '';
+            document.getElementById('admin-user-pass').value = '';
+            document.getElementById('admin-user-role').value = 'user';
+        }
+    },
+
+    // --- CRUD USUARIOS ---
+    async openUserManager() {
+        document.getElementById('modal-usuarios').style.display = 'block';
+        await this.renderAdminUsers();
+    },
+    async renderAdminUsers() {
+        const users = await api.get('users.php') || [];
+        window._currentUsers = users; // Cache para edición local
+        const tbody = document.getElementById('admin-user-list');
+        tbody.innerHTML = users.map((u) => `
+            <tr>
+                <td>${u.name}</td><td>${u.username}</td><td>${u.role}</td>
+                <td>
+                    <button class="btn-duplicate" onclick="ui.editAdminUser(${u.id})">Editar</button>
+                    <button class="btn-remove" onclick="ui.removeAdminUser(${u.id})">Eliminar</button>
+                </td>
+            </tr>
+        `).join('');
+    },
+    async saveAdminUser() {
+        const id = document.getElementById('admin-user-id').value;
+        const name = document.getElementById('admin-user-fullname').value;
+        const username = document.getElementById('admin-user-name').value;
+        const password = document.getElementById('admin-user-pass').value;
+        const role = document.getElementById('admin-user-role').value;
+
+        if(!name || !username || (!id && !password)) return alert("Faltan datos (Nombre, Usuario y Contraseña son obligatorios al crear)");
+
+        const payload = { name, username, password, role };
+        
+        if(id) {
+            payload.id = id;
+            await api.put('users.php', payload);
+        } else {
+            await api.post('users.php', payload);
+        }
+        
+        this.clearForm('user');
+        await this.renderAdminUsers();
+    },
+    editAdminUser(id) {
+        const users = window._currentUsers || [];
+        const u = users.find(x => x.id == id);
+        if(!u) return;
+        document.getElementById('admin-user-id').value = u.id;
+        document.getElementById('admin-user-fullname').value = u.name;
+        document.getElementById('admin-user-name').value = u.username;
+        document.getElementById('admin-user-pass').value = ''; // No cargar contraseña existente por seguridad
+        document.getElementById('admin-user-role').value = u.role;
+    },
+    async removeAdminUser(id) {
+        if(confirm("¿Eliminar usuario?")) {
+            await api.delete('users.php', id);
+            await this.renderAdminUsers();
+        }
+    },
+
+    // --- CRUD PRODUCTOS ---
+    async openProductManager() {
+        document.getElementById('modal-productos').style.display = 'block';
+        
+        this.populateSelect('admin-prod-family', 'families', 'Familia');
+        this.populateSelect('admin-prod-category', 'categories', 'Categoría');
+        this.populateSelect('admin-prod-subcategory', 'subcategories', 'Subcategoría');
+        this.populateSelect('admin-prod-unit', 'units', 'Ud. Medida');
+        
+        const providers = cache.providers;
+        document.getElementById('admin-prod-provider').innerHTML = '<option value="">Seleccione Proveedor</option>' + providers.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+
+        await this.renderAdminProducts();
+    },
+    async renderAdminProducts() {
+        cache.products = await api.get('products.php') || [];
+        const products = cache.products;
+        const tbody = document.getElementById('admin-prod-list');
+        tbody.innerHTML = products.map((p) => {
+            return `
+            <tr>
+                <td>${p.name}</td><td>${p.provider_name || '-'}</td><td>${p.family || '-'}</td>
+                <td>${p.unit}</td><td>$${p.price || 0}</td>
+                <td>
+                    <button class="btn-duplicate" onclick="ui.editAdminProduct(${p.id})">Editar</button>
+                    <button class="btn-remove" onclick="ui.removeAdminProduct(${p.id})">Eliminar</button>
+                </td>
+            </tr>
+        `}).join('');
+    },
+    async saveAdminProduct() {
+        const id = document.getElementById('admin-prod-id').value;
+        const name = document.getElementById('admin-prod-name').value;
+        const provider_id = document.getElementById('admin-prod-provider').value;
+        const family = document.getElementById('admin-prod-family').value;
+        const category = document.getElementById('admin-prod-category').value;
+        const subcategory = document.getElementById('admin-prod-subcategory').value;
+        const unit = document.getElementById('admin-prod-unit').value;
+        const price = document.getElementById('admin-prod-price').value;
+
+        if(!name || !unit) return alert("Nombre y Unidad son obligatorios");
+
+        const payload = { name, provider_id, family, category, subcategory, unit, price };
+
+        if(id) {
+            payload.id = id;
+            await api.put('products.php', payload);
+        } else {
+            await api.post('products.php', payload);
+        }
+        
+        this.clearForm('prod');
+        await this.renderAdminProducts();
+        await loadCache();
+        this.loadProductsSelect();
+    },
+    editAdminProduct(id) {
+        const products = cache.products;
+        const p = products.find(x => x.id == id);
+        if(!p) return;
+        document.getElementById('admin-prod-id').value = p.id;
+        document.getElementById('admin-prod-name').value = p.name;
+        document.getElementById('admin-prod-provider').value = p.provider_id || '';
+        document.getElementById('admin-prod-family').value = p.family || '';
+        document.getElementById('admin-prod-category').value = p.category || '';
+        document.getElementById('admin-prod-subcategory').value = p.subcategory || '';
+        document.getElementById('admin-prod-unit').value = p.unit || '';
+        document.getElementById('admin-prod-price').value = p.price || '';
+    },
+    async removeAdminProduct(id) {
+        if(confirm("¿Eliminar producto?")) {
+            await api.delete('products.php', id);
+            await this.renderAdminProducts();
+            await loadCache();
+            this.loadProductsSelect();
+        }
+    },
+
+    // --- CRUD LISTAS (Reemplaza Formas de Pago, se generaliza por ahora solo muestro Formas de Pago si se requiere o delegar al select dinámico)
+    // El frontend viejo tenia un modal entero para pagos. Lo podemos seguir usando contra list_options:
+    async openPaymentManager() {
+        document.getElementById('modal-pagos').style.display = 'block';
+        await this.renderAdminPayments();
+    },
+    async renderAdminPayments() {
+        await loadCache(); // Refrescar listas
+        const payments = cache.lists['payment_methods'] || [];
+        const tbody = document.getElementById('admin-pay-list');
+        tbody.innerHTML = payments.map((p) => `
+            <tr>
+                <td>${p.name}</td>
+                <td><button class="btn-remove" onclick="ui.removeAdminPayment(${p.id})">Eliminar</button></td>
+            </tr>
+        `).join('');
+    },
+    async saveAdminPayment() {
+        const name = document.getElementById('admin-pay-name').value;
+        if(!name) return;
+        await api.post('lists.php', { list_type: 'payment_methods', value: name });
+        document.getElementById('admin-pay-name').value = '';
+        await this.renderAdminPayments();
+    },
+    async removeAdminPayment(id) {
+        await api.delete('lists.php', id);
+        await this.renderAdminPayments();
+    }
+};
+
+// --- IMPORTACIÓN Y EXPORTACIÓN CSV (Solo funciona con LocalStorage, pendiente adaptar a Backend si se requiere en fase 3) ---
+const csv = {
+    export(type) {
+        let data = [];
+        let filename = '';
+        if(type === 'products') {
+            data = JSON.parse(localStorage.getItem('products')) || [];
+            filename = 'productos.csv';
+        } else if(type === 'providers') {
+            data = JSON.parse(localStorage.getItem('providers')) || [];
+            filename = 'proveedores.csv';
+        } else if(type === 'history') {
+            const history = JSON.parse(localStorage.getItem('orderHistory')) || [];
+            // Aplanar el historial para CSV (resumen)
+            data = history.map(h => ({
+                ref: h.ref, date: h.date, provider: h.provider, user: h.user, 
+                items: h.items.map(i => `${i.name} (${i.qty} ${i.unit})`).join(' | ')
+            }));
+            filename = 'historial_pedidos.csv';
+        }
+
+        if(data.length === 0) return alert("No hay datos para exportar.");
+
+        // Obtener headers dinámicos desde las llaves del primer objeto
+        const headers = Object.keys(data[0]);
+        const csvRows = [];
+        csvRows.push(headers.join(','));
+
+        for(const row of data) {
+            const values = headers.map(header => {
+                const escaped = ('' + (row[header] || '')).replace(/"/g, '""');
+                return `"${escaped}"`;
+            });
+            csvRows.push(values.join(','));
+        }
+
+        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('href', url);
+        a.setAttribute('download', filename);
+        a.click();
+    },
+
+    import(type) {
+        const fileInput = document.getElementById('csv-file-input');
+        const file = fileInput.files[0];
+        if(!file) return alert("Selecciona un archivo CSV primero.");
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const text = e.target.result;
+            const rows = text.split('\n').filter(r => r.trim() !== '');
+            if(rows.length < 2) return alert("El archivo está vacío o no tiene datos.");
+
+            const headers = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
+            const newData = [];
+
+            for(let i=1; i < rows.length; i++) {
+                // Parseo simple (puede fallar con comas dentro de comillas complejas)
+                const values = rows[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+                let obj = { id: generateId() + i }; // Asignar nuevo ID
+                headers.forEach((h, index) => {
+                    if(h !== 'id') obj[h] = values[index];
+                });
+                newData.push(obj);
+            }
+
+            let currentData = JSON.parse(localStorage.getItem(type)) || [];
+            currentData = [...currentData, ...newData];
+            localStorage.setItem(type, JSON.stringify(currentData));
+            alert(`${newData.length} registros importados correctamente.`);
+            fileInput.value = '';
+            
+            // Recargar UI
+            if(type === 'products') ui.openProductManager();
+            if(type === 'providers') ui.openProviderManager();
+        };
+        reader.readAsText(file);
     }
 };
 
 // INICIALIZACIÓN
 (function init() {
+    // Ya no hacemos seedData local, auth.checkAuth() carga la cache del backend si hay sesion
     auth.checkAuth();
-    const pSelect = document.getElementById('product-select');
-    pSelect.innerHTML = '<option value="" disabled selected>Seleccionar Producto...</option>';
-    PRODUCT_MASTER.forEach((p, i) => pSelect.innerHTML += `<option value="${i}">${p.name}</option>`);
-    ui.loadProviders();
 })();

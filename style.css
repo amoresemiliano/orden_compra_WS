@@ -37,9 +37,8 @@ body { background: var(--light-bg); color: var(--dark); padding-bottom: 30px; }
 .config-section, .order-form { background: white; padding: 15px; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
 label { font-size: 0.8rem; font-weight: bold; color: var(--primary); display: block; margin-bottom: 5px; }
 input, select, textarea { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; }
-.form-row { display: flex; gap: 10px; }
-.form-row select { flex: 2; }
-.form-row input { flex: 1; }
+.form-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.form-row > * { flex: 1; min-width: 150px; }
 
 /* List Item Edición */
 .order-item { display: flex; align-items: center; background: white; padding: 10px; margin-bottom: 5px; border-radius: 8px; border: 1px solid var(--border); }

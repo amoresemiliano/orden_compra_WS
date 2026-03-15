@@ -11,7 +11,7 @@
     <div id="login-screen" class="login-container">
         <div class="login-box">
             <img src="logo.png" alt="El Criollo" class="logo">
-            <h2>Acceso al Sistema</h2>
+            <h2>Pedidos por WhatsApp</h2>
             <input type="text" id="login-user" placeholder="Usuario">
             <input type="password" id="login-pass" placeholder="Contraseña">
             <button class="btn-secondary" onclick="auth.login()">Ingresar</button>
@@ -70,16 +70,26 @@
         </section>
 
         <section id="historial" class="tab-content">
+            <div class="config-section" style="margin-bottom: 15px;">
+                <div class="form-row" style="align-items: center;">
+                    <input type="text" id="filter-ref" placeholder="Buscar Ref..." onkeyup="ui.filterHistory()">
+                    <input type="text" id="filter-provider" placeholder="Proveedor..." onkeyup="ui.filterHistory()">
+                    <input type="date" id="filter-date" onchange="ui.filterHistory()">
+                    <input type="text" id="filter-user" placeholder="Usuario..." onkeyup="ui.filterHistory()" style="display:none;">
+                    <button class="btn-secondary" style="max-width: 100px; padding: 10px;" onclick="ui.clearHistoryFilters()">Limpiar</button>
+                </div>
+            </div>
+            
             <div class="table-responsive">
-                <table class="excel-table">
+                <table class="excel-table" id="history-table">
                     <thead>
                         <tr>
-                            <th>Ref.</th>
-                            <th>Fecha</th>
-                            <th>Proveedor</th>
+                            <th onclick="ui.sortHistory('ref')" style="cursor:pointer">Pedido ⇅</th>
+                            <th onclick="ui.sortHistory('date')" style="cursor:pointer">Fecha ⇅</th>
+                            <th onclick="ui.sortHistory('provider')" style="cursor:pointer">Proveedor ⇅</th>
                             <th>Productos</th>
                             <th>Acción</th>
-                            <th>Usuario</th>
+                            <th onclick="ui.sortHistory('user')" style="cursor:pointer">Usuario ⇅</th>
                         </tr>
                     </thead>
                     <tbody id="history-body"></tbody>
@@ -92,11 +102,30 @@
                 <h3>Administración del Sistema</h3>
                 <p>Opciones de administrador para gestionar usuarios, productos, y categorías.</p>
                 <div class="form-row" style="margin-top: 15px;">
-                    <button class="btn-secondary" onclick="alert('Funcionalidad de gestión de Usuarios en desarrollo')">Gestionar Usuarios</button>
-                    <button class="btn-secondary" onclick="alert('Funcionalidad de Productos/Categorías en desarrollo')">Gestionar Productos</button>
+                    <button class="btn-secondary" onclick="ui.openUserManager()">Usuarios</button>
+                    <button class="btn-secondary" onclick="ui.openProductManager()">Productos</button>
                 </div>
                 <div class="form-row" style="margin-top: 15px;">
-                    <button class="btn-secondary" onclick="ui.openProviderManager()">Administrar Proveedores</button>
+                    <button class="btn-secondary" onclick="ui.openProviderManager()">Proveedores</button>
+                    <button class="btn-secondary" onclick="ui.openPaymentManager()">Pagos</button>
+                </div>
+                
+                <h3 style="margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">Importar / Exportar Datos (CSV)</h3>
+                <div class="form-row" style="margin-top: 15px;">
+                    <button class="btn-secondary" style="background:#555;" onclick="ui.toggleCsv('export')">Exportar</button>
+                    <button class="btn-secondary" style="background:#555;" onclick="ui.toggleCsv('import')">Importar</button>
+                </div>
+                
+                <div id="export-options" class="form-row" style="display: none; margin-top: 15px; border: 1px dashed #ccc; padding: 10px; border-radius: 8px;">
+                    <button class="btn-secondary" style="background:#555; padding: 10px;" onclick="csv.export('products')">Productos</button>
+                    <button class="btn-secondary" style="background:#555; padding: 10px;" onclick="csv.export('providers')">Proveedores</button>
+                    <button class="btn-secondary" style="background:#555; padding: 10px;" onclick="csv.export('history')">Historial</button>
+                </div>
+
+                <div id="import-options" class="form-row" style="display: none; margin-top: 15px; border: 1px dashed #ccc; padding: 10px; border-radius: 8px;">
+                    <input type="file" id="csv-file-input" accept=".csv" style="margin-bottom:0; width: 100%;">
+                    <button class="btn-secondary" style="background:#1565c0; padding: 10px;" onclick="csv.import('products')">Productos</button>
+                    <button class="btn-secondary" style="background:#1565c0; padding: 10px;" onclick="csv.import('providers')">Proveedores</button>
                 </div>
             </div>
         </section>
@@ -110,35 +139,123 @@
         </div>
     </div>
 
-    <!-- Modal Admin Proveedores -->
+    <!-- Modales de Administración -->
+    
+    <!-- Proveedores -->
     <div id="modal-proveedores" class="modal">
-        <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-content" style="max-width: 800px;">
             <span class="close" onclick="ui.closeModal('modal-proveedores')">&times;</span>
             <h3>Administrar Proveedores</h3>
+            <input type="hidden" id="admin-prov-id">
             <div class="form-row" style="margin-top: 15px;">
                 <input type="text" id="admin-prov-name" placeholder="Nombre Proveedor">
                 <input type="text" id="admin-prov-phone" placeholder="WhatsApp">
+                <input type="text" id="admin-prov-email" placeholder="Email">
             </div>
             <div class="form-row">
                 <input type="text" id="admin-prov-cif" placeholder="CIF">
                 <input type="text" id="admin-prov-address" placeholder="Domicilio">
+                <input type="text" id="admin-prov-city" placeholder="Ciudad">
             </div>
             <div class="form-row">
-                <input type="text" id="admin-prov-payment" placeholder="Período de pagos">
-                <button class="btn-secondary" onclick="ui.saveAdminProvider()">Guardar</button>
+                <input type="text" id="admin-prov-contact" placeholder="Persona de Contacto">
+                <select id="admin-prov-family">
+                    <option value="">Familia...</option>
+                </select>
+                <select id="admin-prov-payment">
+                    <option value="">Pagos...</option>
+                </select>
             </div>
+            <button class="btn-secondary" style="margin-top:10px" onclick="ui.saveAdminProvider()">Guardar</button>
+            <button class="btn-secondary" style="margin-top:10px; background:#555;" onclick="ui.clearForm('prov')">Limpiar Formulario</button>
             
-            <div class="table-responsive" style="margin-top: 20px;">
+            <div class="table-responsive" style="margin-top: 20px; max-height:300px;">
                 <table class="excel-table">
                     <thead>
                         <tr>
                             <th>Nombre</th>
                             <th>Teléfono</th>
-                            <th>CIF</th>
+                            <th>Ciudad</th>
+                            <th>Familia</th>
                             <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="admin-prov-list"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Usuarios -->
+    <div id="modal-usuarios" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close" onclick="ui.closeModal('modal-usuarios')">&times;</span>
+            <h3>Gestionar Usuarios</h3>
+            <input type="hidden" id="admin-user-id">
+            <div class="form-row" style="margin-top: 15px;">
+                <input type="text" id="admin-user-fullname" placeholder="Nombre Completo">
+                <input type="text" id="admin-user-name" placeholder="Usuario (Login)">
+            </div>
+            <div class="form-row">
+                <input type="password" id="admin-user-pass" placeholder="Contraseña">
+                <select id="admin-user-role">
+                    <option value="user">Usuario</option>
+                    <option value="admin">Administrador</option>
+                </select>
+                <button class="btn-secondary" onclick="ui.saveAdminUser()">Guardar</button>
+            </div>
+            <div class="table-responsive" style="margin-top: 20px;">
+                <table class="excel-table">
+                    <thead><tr><th>Nombre</th><th>Login</th><th>Rol</th><th>Acciones</th></tr></thead>
+                    <tbody id="admin-user-list"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Productos -->
+    <div id="modal-productos" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close" onclick="ui.closeModal('modal-productos')">&times;</span>
+            <h3>Gestionar Productos</h3>
+            <input type="hidden" id="admin-prod-id">
+            <div class="form-row" style="margin-top: 15px;">
+                <input type="text" id="admin-prod-name" placeholder="Nombre del Producto">
+                <select id="admin-prod-provider"><option value="">Seleccione Proveedor</option></select>
+            </div>
+            <div class="form-row">
+                <select id="admin-prod-family"><option value="">Familia</option></select>
+                <select id="admin-prod-category"><option value="">Categoría</option></select>
+                <select id="admin-prod-subcategory"><option value="">Subcategoría</option></select>
+            </div>
+            <div class="form-row">
+                <select id="admin-prod-unit"><option value="">Medida</option></select>
+                <input type="number" id="admin-prod-price" placeholder="Precio (Opcional)" step="0.01">
+                <button class="btn-secondary" onclick="ui.saveAdminProduct()">Guardar</button>
+            </div>
+            <div class="table-responsive" style="margin-top: 20px; max-height:300px;">
+                <table class="excel-table">
+                    <thead><tr><th>Producto</th><th>Proveedor</th><th>Familia</th><th>Unidad</th><th>Precio</th><th>Acciones</th></tr></thead>
+                    <tbody id="admin-prod-list"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Formas de Pago -->
+    <div id="modal-pagos" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <span class="close" onclick="ui.closeModal('modal-pagos')">&times;</span>
+            <h3>Pagos</h3>
+            <input type="hidden" id="admin-pay-id">
+            <div class="form-row" style="margin-top: 15px;">
+                <input type="text" id="admin-pay-name" placeholder="Nombre Forma de Pago">
+                <button class="btn-secondary" onclick="ui.saveAdminPayment()">Guardar</button>
+            </div>
+            <div class="table-responsive" style="margin-top: 20px;">
+                <table class="excel-table">
+                    <thead><tr><th>Nombre</th><th>Acciones</th></tr></thead>
+                    <tbody id="admin-pay-list"></tbody>
                 </table>
             </div>
         </div>
