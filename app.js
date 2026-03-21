@@ -1,6 +1,6 @@
 // CONFIGURACIÓN API
-// Cambiar a la URL de tu servidor en producción (ej. 'https://vegendigital.com/sistemas/comprasWS/backend/')
-const API_URL = 'https://vegendigital.com/sistemas/comprasWS/backend/';
+// Cambiar a la URL de tu servidor en producción (ej. 'https://tudominio.com/backend/')
+const API_URL = 'backend/';
 
 // FUNCIONES DE PETICIÓN (AJAX con Fetch API)
 const api = {
@@ -123,6 +123,7 @@ const generateId = () => Date.now().toString();
 
 // ESTADO DE LA APLICACIÓN
 let currentOrder = [];
+let editingOrderId = null;
 
 // MÓDULO DE LÓGICA DE ÓRDENES (Principios SOLID)
 const orderManager = {
@@ -187,10 +188,40 @@ const orderManager = {
         this.render();
     },
 
+    async updateOrder() {
+        if (!editingOrderId) return;
+        const name = document.getElementById('provider-name').value || "Proveedor";
+        if (currentOrder.length === 0) return alert("Falta seleccionar productos.");
+
+        const payload = {
+            id: editingOrderId,
+            provider: name,
+            items: currentOrder.map(i => ({ name: i.name, qty: i.qty, unit: i.unit }))
+        };
+
+        await api.put('orders.php', payload);
+        alert('Orden actualizada correctamente en la base de datos.');
+        
+        this.cancelEdit();
+        ui.renderHistory();
+    },
+
+    cancelEdit() {
+        editingOrderId = null;
+        currentOrder = [];
+        document.getElementById('send-whatsapp').style.display = 'block';
+        document.getElementById('btn-update-order').style.display = 'none';
+        document.getElementById('btn-cancel-edit').style.display = 'none';
+        
+        // Reset dropdown
+        document.getElementById('provider-select').value = 'new';
+        ui.handleProviderChange();
+        this.render();
+    },
+
     async saveToHistory(provider) {
         const user = auth.getCurrentUser();
         const orderData = {
-            ref: `#${Math.floor(1000 + Math.random() * 9000)}`,
             provider: provider,
             user: user.name,
             items: currentOrder.map(i => ({ name: i.name, qty: i.qty, unit: i.unit }))
@@ -214,7 +245,11 @@ const ui = {
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(tabId).classList.add('active');
-        event.currentTarget.classList.add('active');
+        
+        // Find the button that opens this tab to highlight it (since event.currentTarget fails if called programmatically)
+        const btn = document.querySelector(`.tab-btn[onclick="ui.openTab('${tabId}')"]`);
+        if (btn) btn.classList.add('active');
+        
         if (tabId === 'historial') this.renderHistory();
     },
 
@@ -222,6 +257,7 @@ const ui = {
         const pSelect = document.getElementById('product-select');
         pSelect.innerHTML = '<option value="" disabled selected>Seleccionar Producto...</option>';
         cache.products.forEach(p => pSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`);
+        this._originalProductOptions = Array.from(pSelect.options);
     },
 
     loadProviders() {
@@ -231,6 +267,25 @@ const ui = {
         // En backend guardamos con ID original de DB. 
         providers.forEach((p) => {
             sel.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+        });
+        this._originalProviderOptions = Array.from(sel.options);
+    },
+
+    filterSelectOptions(inputId, selectId) {
+        const term = document.getElementById(inputId).value.toLowerCase();
+        const select = document.getElementById(selectId);
+        
+        // Recover original options if they don't exist yet
+        let originalOptions = [];
+        if (selectId === 'product-select') originalOptions = this._originalProductOptions || Array.from(select.options);
+        if (selectId === 'provider-select') originalOptions = this._originalProviderOptions || Array.from(select.options);
+        
+        select.innerHTML = '';
+        
+        originalOptions.forEach(opt => {
+            if (opt.text.toLowerCase().includes(term) || opt.value === "" || opt.value === "new") {
+                select.appendChild(opt.cloneNode(true));
+            }
         });
     },
 
@@ -284,17 +339,74 @@ const ui = {
         body.innerHTML = historyArray.map((o) => {
             // Find real index in total cache for duplicate/details functions
             const originalIdx = window._currentHistory.findIndex(h => h.id === o.id);
+            const user = auth.getCurrentUser();
+            let adminActions = '';
+            
+            if (user.role === 'admin') {
+                adminActions = `
+                    <button class="btn-duplicate" style="background:#f39c12; color:white; border-color:#e67e22;" onclick="ui.editOrder(${originalIdx})">Editar</button>
+                    <button class="btn-remove" onclick="ui.deleteOrder(${o.id})">Eliminar</button>
+                `;
+            }
+
             return `
                 <tr>
                     <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer"><strong>${o.ref}</strong></td>
                     <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer">${o.date.split(' ')[0]}</td>
                     <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer">${o.provider}</td>
                     <td class="text-truncate">${o.items.map(i => i.name).join(', ')}</td>
-                    <td><button class="btn-duplicate" onclick="ui.duplicate(${originalIdx})">Reutilizar</button></td>
+                    <td>
+                        <button class="btn-duplicate" onclick="ui.duplicate(${originalIdx})">Reutilizar</button>
+                        ${adminActions}
+                    </td>
                     <td>${o.user || 'N/A'}</td>
                 </tr>
             `;
         }).join('');
+    },
+
+    async deleteOrder(id) {
+        if(confirm("¿Seguro que deseas eliminar esta orden del historial por completo?")) {
+            await api.delete('orders.php', id);
+            this.renderHistory();
+        }
+    },
+
+    editOrder(idx) {
+        const history = window._currentHistory;
+        if(!history || !history[idx]) return;
+        
+        const o = history[idx];
+        editingOrderId = o.id;
+        
+        // Deep copy items into current order
+        currentOrder = JSON.parse(JSON.stringify(o.items)); 
+        
+        // Cargar datos de proveedor
+        const pSelect = document.getElementById('provider-select');
+        let optionExists = false;
+        Array.from(pSelect.options).forEach(opt => {
+            if(opt.text === o.provider) {
+                pSelect.value = opt.value;
+                optionExists = true;
+            }
+        });
+
+        if (!optionExists) {
+            pSelect.value = 'new';
+            document.getElementById('provider-name').value = o.provider;
+            document.getElementById('new-provider-fields').style.display = 'block';
+        } else {
+            this.handleProviderChange();
+        }
+
+        // Toggle buttons
+        document.getElementById('send-whatsapp').style.display = 'none';
+        document.getElementById('btn-update-order').style.display = 'block';
+        document.getElementById('btn-cancel-edit').style.display = 'block';
+
+        this.openTab('pedidos');
+        orderManager.render();
     },
 
     filterHistory() {
@@ -703,19 +815,21 @@ const ui = {
     }
 };
 
-// --- IMPORTACIÓN Y EXPORTACIÓN CSV (Solo funciona con LocalStorage, pendiente adaptar a Backend si se requiere en fase 3) ---
+// --- IMPORTACIÓN Y EXPORTACIÓN CSV (Adaptado a DB Real) ---
 const csv = {
-    export(type) {
+    async export(type) {
         let data = [];
         let filename = '';
         if(type === 'products') {
-            data = JSON.parse(localStorage.getItem('products')) || [];
+            data = await api.get('products.php') || [];
             filename = 'productos.csv';
         } else if(type === 'providers') {
-            data = JSON.parse(localStorage.getItem('providers')) || [];
+            data = await api.get('providers.php') || [];
             filename = 'proveedores.csv';
         } else if(type === 'history') {
-            const history = JSON.parse(localStorage.getItem('orderHistory')) || [];
+            const user = auth.getCurrentUser();
+            const history = await api.get(`orders.php?role=${encodeURIComponent(user.role)}&user=${encodeURIComponent(user.name)}`) || [];
+            
             // Aplanar el historial para CSV (resumen)
             data = history.map(h => ({
                 ref: h.ref, date: h.date, provider: h.provider, user: h.user, 
@@ -729,17 +843,17 @@ const csv = {
         // Obtener headers dinámicos desde las llaves del primer objeto
         const headers = Object.keys(data[0]);
         const csvRows = [];
-        csvRows.push(headers.join(','));
+        csvRows.push(headers.join(';'));
 
         for(const row of data) {
             const values = headers.map(header => {
                 const escaped = ('' + (row[header] || '')).replace(/"/g, '""');
                 return `"${escaped}"`;
             });
-            csvRows.push(values.join(','));
+            csvRows.push(values.join(';'));
         }
 
-        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.setAttribute('href', url);
@@ -747,37 +861,135 @@ const csv = {
         a.click();
     },
 
-    import(type) {
+    // Parseador básico de CSV que soporta comas y punto y coma, así como valores entrecomillados
+    parseCSV(text) {
+        let p = '', row = [''], ret = [row], i = 0, r = 0, s = !0, l;
+        
+        // Detect delimiter (comma or semicolon)
+        const firstLine = text.split('\n')[0];
+        let delimiter = ',';
+        if ((firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length) {
+            delimiter = ';';
+        }
+
+        for (l of text) {
+            if ('"' === l) {
+                if (s && l === p) row[i] += l;
+                s = !s;
+            } else if (delimiter === l && s) l = row[++i] = '';
+            else if ('\n' === l && s) {
+                if ('\r' === p) row[i] = row[i].slice(0, -1);
+                row = ret[++r] = [l = '']; i = 0;
+            } else row[i] += l;
+            p = l;
+        }
+        return ret.filter(r => r.length > 1 || r[0].trim() !== '');
+    },
+
+    showLoading(show, message = "Procesando...") {
+        let overlay = document.getElementById('csv-loading-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'csv-loading-overlay';
+            overlay.style.position = 'fixed';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.width = '100vw';
+            overlay.style.height = '100vh';
+            overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            overlay.style.color = '#fff';
+            overlay.style.display = 'flex';
+            overlay.style.flexDirection = 'column';
+            overlay.style.alignItems = 'center';
+            overlay.style.justifyContent = 'center';
+            overlay.style.zIndex = '9999';
+            overlay.style.fontSize = '1.5rem';
+            
+            const spinner = document.createElement('div');
+            spinner.style.border = '6px solid #f3f3f3';
+            spinner.style.borderTop = '6px solid #e3000f';
+            spinner.style.borderRadius = '50%';
+            spinner.style.width = '50px';
+            spinner.style.height = '50px';
+            spinner.style.animation = 'spin 1s linear infinite';
+            spinner.style.marginBottom = '20px';
+            
+            const style = document.createElement('style');
+            style.textContent = `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`;
+            document.head.appendChild(style);
+            
+            const text = document.createElement('div');
+            text.id = 'csv-loading-text';
+            text.textContent = message;
+            
+            overlay.appendChild(spinner);
+            overlay.appendChild(text);
+            document.body.appendChild(overlay);
+        }
+        
+        const textEl = document.getElementById('csv-loading-text');
+        if (textEl) textEl.textContent = message;
+        
+        overlay.style.display = show ? 'flex' : 'none';
+    },
+
+    async import(type) {
         const fileInput = document.getElementById('csv-file-input');
         const file = fileInput.files[0];
         if(!file) return alert("Selecciona un archivo CSV primero.");
 
         const reader = new FileReader();
-        reader.onload = function(e) {
+        reader.onload = async function(e) {
             const text = e.target.result;
-            const rows = text.split('\n').filter(r => r.trim() !== '');
-            if(rows.length < 2) return alert("El archivo está vacío o no tiene datos.");
+            
+            const parsedData = csv.parseCSV(text);
+            if(parsedData.length < 2) return alert("El archivo está vacío o no tiene datos válidos.");
 
-            const headers = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
-            const newData = [];
+            const headers = parsedData[0].map(h => h.trim().toLowerCase());
+            let count = 0;
 
-            for(let i=1; i < rows.length; i++) {
-                // Parseo simple (puede fallar con comas dentro de comillas complejas)
-                const values = rows[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-                let obj = { id: generateId() + i }; // Asignar nuevo ID
+            csv.showLoading(true, `Importando ${type === 'products' ? 'productos' : 'proveedores'}...`);
+
+            for(let i=1; i < parsedData.length; i++) {
+                const values = parsedData[i];
+                let obj = {}; 
                 headers.forEach((h, index) => {
-                    if(h !== 'id') obj[h] = values[index];
+                    if(h !== 'id' && h !== '') {
+                        obj[h] = values[index] ? values[index].trim() : ''; 
+                    }
                 });
-                newData.push(obj);
+                
+                // Si la fila está mayormente vacía, saltar
+                if (!obj.name) continue;
+
+                // Verificación de duplicados básicos en caché
+                let isDuplicate = false;
+                if (type === 'products' && cache.products.find(p => p.name.toLowerCase() === obj.name.toLowerCase())) isDuplicate = true;
+                if (type === 'providers' && cache.providers.find(p => p.name.toLowerCase() === obj.name.toLowerCase())) isDuplicate = true;
+
+                if (!isDuplicate) {
+                    // POST individual por cada item validado
+                    if (type === 'products') await api.post('products.php', obj);
+                    if (type === 'providers') await api.post('providers.php', obj);
+                    count++;
+                }
+                
+                if (i % 10 === 0) {
+                    csv.showLoading(true, `Procesando ${i} de ${parsedData.length - 1}...`);
+                }
             }
 
-            let currentData = JSON.parse(localStorage.getItem(type)) || [];
-            currentData = [...currentData, ...newData];
-            localStorage.setItem(type, JSON.stringify(currentData));
-            alert(`${newData.length} registros importados correctamente.`);
+            const msg = count === 0 && parsedData.length > 1 
+                ? `No se importaron datos. Es posible que los registros ya existan en la base de datos o el formato sea incorrecto.` 
+                : `Se han importado ${count} nuevos registros (se omitieron los repetidos).`;
+                
+            csv.showLoading(false);
+            alert(msg);
+            
             fileInput.value = '';
             
             // Recargar UI
+            await loadCache();
             if(type === 'products') ui.openProductManager();
             if(type === 'providers') ui.openProviderManager();
         };

@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pedidos El Criollo</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
     <!-- Login Screen -->
     <div id="login-screen" class="login-container">
         <div class="login-box">
             <img src="logo.png" alt="El Criollo" class="logo">
-            <h2>Pedidos por WhatsApp</h2>
+            <h2>Acceso al Sistema</h2>
             <input type="text" id="login-user" placeholder="Usuario">
             <input type="password" id="login-pass" placeholder="Contraseña">
             <button class="btn-secondary" onclick="auth.login()">Ingresar</button>
@@ -39,10 +39,11 @@
         <section id="pedidos" class="tab-content active">
             <div class="config-section">
                 <label>Proveedor</label>
+                <input type="text" id="provider-search" placeholder="🔍 Buscar proveedor..." onkeyup="ui.filterSelectOptions('provider-search', 'provider-select')" style="margin-bottom: 5px; font-size: 0.9rem;">
                 <select id="provider-select" onchange="ui.handleProviderChange()">
                     <option value="new">-- Nuevo Proveedor --</option>
                 </select>
-                <div id="new-provider-fields">
+                <div id="new-provider-fields" style="display:none; margin-top: 10px;">
                     <input type="text" id="provider-name" placeholder="Nombre (Ej: Frutas Pepe)">
                     <input type="tel" id="provider-phone" placeholder="WhatsApp (Ej: 34600000000)">
                 </div>
@@ -54,9 +55,10 @@
             </div>
 
             <div class="order-form">
+                <input type="text" id="product-search" placeholder="🔍 Buscar producto..." onkeyup="ui.filterSelectOptions('product-search', 'product-select')" style="margin-bottom: 5px; font-size: 0.9rem; width: 100%;">
                 <div class="form-row">
-                    <select id="product-select"></select>
-                    <input type="number" id="quantity" placeholder="Cant." min="0.1" step="0.1">
+                    <select id="product-select" style="flex: 2;"></select>
+                    <input type="number" id="quantity" placeholder="Cant." min="0.1" step="0.1" style="flex: 1; max-width: 100px;">
                 </div>
                 <button onclick="orderManager.addItem()" class="btn-secondary">Añadir a la Lista</button>
             </div>
@@ -65,6 +67,12 @@
                 <ul id="order-list"></ul>
                 <button id="send-whatsapp" onclick="orderManager.sendOrder()" class="btn-whatsapp">
                     Enviar Orden por WhatsApp
+                </button>
+                <button id="btn-update-order" onclick="orderManager.updateOrder()" class="btn-secondary" style="display:none; margin-top: 10px; background-color: #f39c12;">
+                    Guardar Cambios en la Orden
+                </button>
+                <button id="btn-cancel-edit" onclick="orderManager.cancelEdit()" class="btn-secondary" style="display:none; margin-top: 10px; background-color: #555;">
+                    Cancelar Edición
                 </button>
             </div>
         </section>
@@ -84,7 +92,7 @@
                 <table class="excel-table" id="history-table">
                     <thead>
                         <tr>
-                            <th onclick="ui.sortHistory('ref')" style="cursor:pointer">Pedido ⇅</th>
+                            <th onclick="ui.sortHistory('ref')" style="cursor:pointer">Ref. ⇅</th>
                             <th onclick="ui.sortHistory('date')" style="cursor:pointer">Fecha ⇅</th>
                             <th onclick="ui.sortHistory('provider')" style="cursor:pointer">Proveedor ⇅</th>
                             <th>Productos</th>
@@ -160,10 +168,10 @@
             <div class="form-row">
                 <input type="text" id="admin-prov-contact" placeholder="Persona de Contacto">
                 <select id="admin-prov-family">
-                    <option value="">Familia...</option>
+                    <option value="">Familia Asociada...</option>
                 </select>
                 <select id="admin-prov-payment">
-                    <option value="">Pagos...</option>
+                    <option value="">Forma de Pago...</option>
                 </select>
             </div>
             <button class="btn-secondary" style="margin-top:10px" onclick="ui.saveAdminProvider()">Guardar</button>
@@ -199,7 +207,7 @@
             <div class="form-row">
                 <input type="password" id="admin-user-pass" placeholder="Contraseña">
                 <select id="admin-user-role">
-                    <option value="user">Usuario</option>
+                    <option value="user">Usuario Regular</option>
                     <option value="admin">Administrador</option>
                 </select>
                 <button class="btn-secondary" onclick="ui.saveAdminUser()">Guardar</button>
@@ -229,13 +237,13 @@
                 <select id="admin-prod-subcategory"><option value="">Subcategoría</option></select>
             </div>
             <div class="form-row">
-                <select id="admin-prod-unit"><option value="">Medida</option></select>
+                <select id="admin-prod-unit"><option value="">Ud. Medida</option></select>
                 <input type="number" id="admin-prod-price" placeholder="Precio (Opcional)" step="0.01">
                 <button class="btn-secondary" onclick="ui.saveAdminProduct()">Guardar</button>
             </div>
             <div class="table-responsive" style="margin-top: 20px; max-height:300px;">
                 <table class="excel-table">
-                    <thead><tr><th>Producto</th><th>Proveedor</th><th>Familia</th><th>Unidad</th><th>Precio</th><th>Acciones</th></tr></thead>
+                    <thead><tr><th>Producto</th><th>Proveedor</th><th>Familia</th><th>Ud</th><th>Precio</th><th>Acciones</th></tr></thead>
                     <tbody id="admin-prod-list"></tbody>
                 </table>
             </div>
@@ -246,7 +254,7 @@
     <div id="modal-pagos" class="modal">
         <div class="modal-content" style="max-width: 400px;">
             <span class="close" onclick="ui.closeModal('modal-pagos')">&times;</span>
-            <h3>Pagos</h3>
+            <h3>Formas de Pago</h3>
             <input type="hidden" id="admin-pay-id">
             <div class="form-row" style="margin-top: 15px;">
                 <input type="text" id="admin-pay-name" placeholder="Nombre Forma de Pago">
@@ -263,6 +271,6 @@
 
     </div> <!-- End Main App Container -->
 
-    <script src="app.js"></script>
+    <script src="app.js?v=4"></script>
 </body>
 </html>
