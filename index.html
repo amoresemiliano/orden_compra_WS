@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pedidos El Criollo</title>
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.default.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
     <!-- Login Screen -->
@@ -39,7 +41,6 @@
         <section id="pedidos" class="tab-content active">
             <div class="config-section">
                 <label>Proveedor</label>
-                <input type="text" id="provider-search" placeholder="🔍 Buscar proveedor..." onkeyup="ui.filterSelectOptions('provider-search', 'provider-select')" style="margin-bottom: 5px; font-size: 0.9rem;">
                 <select id="provider-select" onchange="ui.handleProviderChange()">
                     <option value="new">-- Nuevo Proveedor --</option>
                 </select>
@@ -47,20 +48,17 @@
                     <input type="text" id="provider-name" placeholder="Nombre (Ej: Frutas Pepe)">
                     <input type="tel" id="provider-phone" placeholder="WhatsApp (Ej: 34600000000)">
                 </div>
-                <label>Mensaje de Inicio</label>
-                <textarea id="custom-message-intro">Buenos días, le envío la orden de compra de El Criollo, muchas gracias!</textarea>
-                
-                <label>Mensaje de Cierre</label>
-                <textarea id="custom-message-outro">Quedo a la espera de confirmación. Saludos cordiales.</textarea>
+                <!-- Mensaje Intro/Outro ahora están hardcodeados en app.js y ocultos al usuario -->
             </div>
 
             <div class="order-form">
-                <input type="text" id="product-search" placeholder="🔍 Buscar producto..." onkeyup="ui.filterSelectOptions('product-search', 'product-select')" style="margin-bottom: 5px; font-size: 0.9rem; width: 100%;">
                 <div class="form-row">
-                    <select id="product-select" style="flex: 2;"></select>
+                    <div style="flex: 2; min-width: 200px;">
+                        <select id="product-select"></select>
+                    </div>
                     <input type="number" id="quantity" placeholder="Cant." min="0.1" step="0.1" style="flex: 1; max-width: 100px;">
                 </div>
-                <button onclick="orderManager.addItem()" class="btn-secondary">Añadir a la Lista</button>
+                <button onclick="orderManager.addItem()" class="btn-secondary" style="margin-top:10px;">Añadir a la Lista</button>
             </div>
 
             <div class="summary">
@@ -82,9 +80,14 @@
                 <div class="form-row" style="align-items: center;">
                     <input type="text" id="filter-ref" placeholder="Buscar Ref..." onkeyup="ui.filterHistory()">
                     <input type="text" id="filter-provider" placeholder="Proveedor..." onkeyup="ui.filterHistory()">
-                    <input type="date" id="filter-date" onchange="ui.filterHistory()">
-                    <input type="text" id="filter-user" placeholder="Usuario..." onkeyup="ui.filterHistory()" style="display:none;">
-                    <button class="btn-secondary" style="max-width: 100px; padding: 10px;" onclick="ui.clearHistoryFilters()">Limpiar</button>
+                    <div style="display: flex; gap: 5px; flex: 2; min-width: 250px;">
+                        <input type="date" id="filter-date-start" onchange="ui.filterHistory()" style="margin-bottom:0;" title="Desde">
+                        <input type="date" id="filter-date-end" onchange="ui.filterHistory()" style="margin-bottom:0;" title="Hasta">
+                    </div>
+                    <select id="filter-user" onchange="ui.filterHistory()" style="display:none; margin-bottom:0;">
+                        <option value="">Todos los Usuarios...</option>
+                    </select>
+                    <button class="btn-secondary" style="max-width: 100px; padding: 10px; margin-bottom:0;" onclick="ui.clearHistoryFilters()">Limpiar</button>
                 </div>
             </div>
             
@@ -92,30 +95,31 @@
                 <table class="excel-table" id="history-table">
                     <thead>
                         <tr>
-                            <th onclick="ui.sortHistory('ref')" style="cursor:pointer">Ref. ⇅</th>
-                            <th onclick="ui.sortHistory('date')" style="cursor:pointer">Fecha ⇅</th>
-                            <th onclick="ui.sortHistory('provider')" style="cursor:pointer">Proveedor ⇅</th>
-                            <th>Productos</th>
-                            <th>Acción</th>
-                            <th onclick="ui.sortHistory('user')" style="cursor:pointer">Usuario ⇅</th>
+                            <th class="check-col"><input type="checkbox" onclick="ui.toggleSelectAll(this, 'history-check')"></th>
+                            <th style="cursor: pointer;" onclick="ui.sortHistory('ref')">Nº Ref <i class="fas fa-sort"></i></th>
+                            <th style="cursor: pointer;" onclick="ui.sortHistory('date')">Fecha <i class="fas fa-sort"></i></th>
+                            <th style="cursor: pointer;" onclick="ui.sortHistory('provider')">Proveedor <i class="fas fa-sort"></i></th>
+                            <th>Artículos</th>
+                            <th>Acciones</th>
+                            <th style="cursor: pointer;" onclick="ui.sortHistory('user')">Usuario <i class="fas fa-sort"></i></th>
                         </tr>
                     </thead>
                     <tbody id="history-body"></tbody>
                 </table>
             </div>
+            <button class="btn-remove" style="margin-top: 10px; display: none;" id="btn-bulk-delete-history" onclick="ui.bulkDelete('history')">Eliminar Seleccionados</button>
         </section>
 
         <section id="configuracion" class="tab-content">
             <div class="config-section">
                 <h3>Administración del Sistema</h3>
-                <p>Opciones de administrador para gestionar usuarios, productos, y categorías.</p>
                 <div class="form-row" style="margin-top: 15px;">
                     <button class="btn-secondary" onclick="ui.openUserManager()">Usuarios</button>
                     <button class="btn-secondary" onclick="ui.openProductManager()">Productos</button>
                 </div>
                 <div class="form-row" style="margin-top: 15px;">
                     <button class="btn-secondary" onclick="ui.openProviderManager()">Proveedores</button>
-                    <button class="btn-secondary" onclick="ui.openPaymentManager()">Pagos</button>
+                    <button class="btn-secondary" onclick="ui.openPaymentManager()">Pagos y Listas</button>
                 </div>
                 
                 <h3 style="margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">Importar / Exportar Datos (CSV)</h3>
@@ -153,8 +157,9 @@
     <div id="modal-proveedores" class="modal">
         <div class="modal-content" style="max-width: 800px;">
             <span class="close" onclick="ui.closeModal('modal-proveedores')">&times;</span>
-            <h3>Administrar Proveedores</h3>
+            <h3>Gestionar Proveedores</h3>
             <input type="hidden" id="admin-prov-id">
+            
             <div class="form-row" style="margin-top: 15px;">
                 <input type="text" id="admin-prov-name" placeholder="Nombre Proveedor">
                 <input type="text" id="admin-prov-phone" placeholder="WhatsApp">
@@ -181,6 +186,7 @@
                 <table class="excel-table">
                     <thead>
                         <tr>
+                            <th class="check-col"><input type="checkbox" onclick="ui.toggleSelectAll(this, 'prov-check')"></th>
                             <th>Nombre</th>
                             <th>Teléfono</th>
                             <th>Ciudad</th>
@@ -191,12 +197,13 @@
                     <tbody id="admin-prov-list"></tbody>
                 </table>
             </div>
+            <button class="btn-remove" style="margin-top: 10px; display: none;" id="btn-bulk-delete-prov" onclick="ui.bulkDelete('providers')">Eliminar Seleccionados</button>
         </div>
     </div>
 
     <!-- Usuarios -->
     <div id="modal-usuarios" class="modal">
-        <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-content">
             <span class="close" onclick="ui.closeModal('modal-usuarios')">&times;</span>
             <h3>Gestionar Usuarios</h3>
             <input type="hidden" id="admin-user-id">
@@ -229,7 +236,7 @@
             <input type="hidden" id="admin-prod-id">
             <div class="form-row" style="margin-top: 15px;">
                 <input type="text" id="admin-prod-name" placeholder="Nombre del Producto">
-                <select id="admin-prod-provider"><option value="">Seleccione Proveedor</option></select>
+                <select id="admin-prod-provider" multiple></select>
             </div>
             <div class="form-row">
                 <select id="admin-prod-family"><option value="">Familia</option></select>
@@ -243,24 +250,35 @@
             </div>
             <div class="table-responsive" style="margin-top: 20px; max-height:300px;">
                 <table class="excel-table">
-                    <thead><tr><th>Producto</th><th>Proveedor</th><th>Familia</th><th>Ud</th><th>Precio</th><th>Acciones</th></tr></thead>
+                    <thead><tr><th class="check-col"><input type="checkbox" onclick="ui.toggleSelectAll(this, 'prod-check')"></th><th>Producto</th><th>Proveedor</th><th>Familia</th><th>Ud</th><th>Precio</th><th>Acciones</th></tr></thead>
                     <tbody id="admin-prod-list"></tbody>
                 </table>
             </div>
+            <button class="btn-remove" style="margin-top: 10px; display: none;" id="btn-bulk-delete-prod" onclick="ui.bulkDelete('products')">Eliminar Seleccionados</button>
         </div>
     </div>
 
-    <!-- Formas de Pago -->
+    <!-- Formas de Pago / Listas Desplegables -->
     <div id="modal-pagos" class="modal">
-        <div class="modal-content" style="max-width: 400px;">
+        <div class="modal-content" style="max-width: 500px;">
             <span class="close" onclick="ui.closeModal('modal-pagos')">&times;</span>
-            <h3>Formas de Pago</h3>
+            <h3>Listas Desplegables</h3>
+            <p style="font-size: 0.8rem; margin-bottom: 10px; color:#666;">Selecciona la lista que deseas administrar:</p>
+            
+            <select id="admin-list-type" onchange="ui.renderAdminPayments()" style="margin-bottom: 15px;">
+                <option value="payment_methods">Formas de Pago</option>
+                <option value="families">Familias de Productos</option>
+                <option value="categories">Categorías</option>
+                <option value="subcategories">Subcategorías</option>
+                <option value="units">Unidades de Medida</option>
+            </select>
+
             <input type="hidden" id="admin-pay-id">
             <div class="form-row" style="margin-top: 15px;">
-                <input type="text" id="admin-pay-name" placeholder="Nombre Forma de Pago">
+                <input type="text" id="admin-pay-name" placeholder="Nombre del elemento...">
                 <button class="btn-secondary" onclick="ui.saveAdminPayment()">Guardar</button>
             </div>
-            <div class="table-responsive" style="margin-top: 20px;">
+            <div class="table-responsive" style="margin-top: 20px; max-height:300px;">
                 <table class="excel-table">
                     <thead><tr><th>Nombre</th><th>Acciones</th></tr></thead>
                     <tbody id="admin-pay-list"></tbody>
@@ -271,6 +289,7 @@
 
     </div> <!-- End Main App Container -->
 
-    <script src="app.js?v=4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+    <script src="app.js?v=5"></script>
 </body>
 </html>

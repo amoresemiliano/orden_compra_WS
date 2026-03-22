@@ -65,6 +65,10 @@ async function loadCache() {
     cache.products = await api.get('products.php') || [];
     cache.providers = await api.get('providers.php') || [];
     cache.lists = await api.get('lists.php') || {};
+    
+    // Sort products and providers alphabetically
+    cache.products.sort((a, b) => a.name.localeCompare(b.name));
+    cache.providers.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // AUTENTICACIÓN Y ROLES (Real con PHP Backend)
@@ -118,14 +122,14 @@ const auth = {
     }
 };
 
-// UTILIDADES PARA CRUD (ya no necesitamos id gen en backend normal, excepto para CSV local temporal)
+// UTILIDADES PARA CRUD
 const generateId = () => Date.now().toString();
 
 // ESTADO DE LA APLICACIÓN
 let currentOrder = [];
 let editingOrderId = null;
 
-// MÓDULO DE LÓGICA DE ÓRDENES (Principios SOLID)
+// MÓDULO DE LÓGICA DE ÓRDENES
 const orderManager = {
     addItem() {
         const pId = document.getElementById('product-select').value;
@@ -133,7 +137,7 @@ const orderManager = {
         const products = cache.products;
         
         if (pId !== "" && qty > 0) {
-            const product = products.find(p => p.id == pId); // '==' because HTML values are strings
+            const product = products.find(p => p.id == pId); 
             if (product) {
                 currentOrder.push({ ...product, qty: parseFloat(qty) });
                 this.render();
@@ -168,8 +172,8 @@ const orderManager = {
     async sendOrder() {
         const phone = document.getElementById('provider-phone').value.replace(/\s+/g, '');
         const name = document.getElementById('provider-name').value || "Proveedor";
-        const msgIntro = document.getElementById('custom-message-intro').value;
-        const msgOutro = document.getElementById('custom-message-outro').value;
+        const msgIntro = "Buenos días, le envío la orden de compra de El Criollo, ¡muchas gracias!";
+        const msgOutro = "Quedo a la espera de confirmación. Saludos cordiales.";
 
         if (!phone || currentOrder.length === 0) return alert("Falta el teléfono o productos.");
 
@@ -230,11 +234,10 @@ const orderManager = {
     },
 
     async saveProvider(name, phone) {
-        // Solo guarda si no existe en el cache (que es como venía antes)
         if (!cache.providers.find(p => p.phone === phone)) {
             await api.post('providers.php', { name, phone });
-            await loadCache(); // Recargar providers cache
-            ui.loadProviders(); // Actualizar el select
+            await loadCache(); 
+            ui.loadProviders(); 
         }
     }
 };
@@ -246,46 +249,51 @@ const ui = {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(tabId).classList.add('active');
         
-        // Find the button that opens this tab to highlight it (since event.currentTarget fails if called programmatically)
         const btn = document.querySelector(`.tab-btn[onclick="ui.openTab('${tabId}')"]`);
         if (btn) btn.classList.add('active');
         
         if (tabId === 'historial') this.renderHistory();
     },
 
-    loadProductsSelect() {
+    loadProductsSelect(providerId = null) {
         const pSelect = document.getElementById('product-select');
         pSelect.innerHTML = '<option value="" disabled selected>Seleccionar Producto...</option>';
-        cache.products.forEach(p => pSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`);
-        this._originalProductOptions = Array.from(pSelect.options);
+        
+        let filteredProducts = cache.products;
+        if (providerId && providerId !== 'new') {
+            // Un producto ahora puede tener múltiples proveedores, verificamos si está en el array de ids
+            filteredProducts = cache.products.filter(p => {
+                if (p.provider_ids_array && p.provider_ids_array.includes(providerId.toString())) {
+                    return true;
+                }
+                // Fallback de compatibilidad
+                return p.provider_id == providerId;
+            });
+        }
+
+        filteredProducts.forEach(p => {
+            pSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+        });
+        
+        if (this._tomProduct) this._tomProduct.destroy();
+        this._tomProduct = new TomSelect("#product-select", {
+            create: false,
+            sortField: { field: "text", direction: "asc" }
+        });
     },
 
     loadProviders() {
         const sel = document.getElementById('provider-select');
         const providers = cache.providers;
         sel.innerHTML = '<option value="new">-- Nuevo Proveedor --</option>';
-        // En backend guardamos con ID original de DB. 
         providers.forEach((p) => {
             sel.innerHTML += `<option value="${p.id}">${p.name}</option>`;
         });
-        this._originalProviderOptions = Array.from(sel.options);
-    },
-
-    filterSelectOptions(inputId, selectId) {
-        const term = document.getElementById(inputId).value.toLowerCase();
-        const select = document.getElementById(selectId);
         
-        // Recover original options if they don't exist yet
-        let originalOptions = [];
-        if (selectId === 'product-select') originalOptions = this._originalProductOptions || Array.from(select.options);
-        if (selectId === 'provider-select') originalOptions = this._originalProviderOptions || Array.from(select.options);
-        
-        select.innerHTML = '';
-        
-        originalOptions.forEach(opt => {
-            if (opt.text.toLowerCase().includes(term) || opt.value === "" || opt.value === "new") {
-                select.appendChild(opt.cloneNode(true));
-            }
+        if (this._tomProvider) this._tomProvider.destroy();
+        this._tomProvider = new TomSelect("#provider-select", {
+            create: false,
+            sortField: { field: "text", direction: "asc" }
         });
     },
 
@@ -298,28 +306,27 @@ const ui = {
             fields.style.display = 'block';
             document.getElementById('provider-name').value = "";
             document.getElementById('provider-phone').value = "";
+            this.loadProductsSelect(null);
         } else {
             fields.style.display = 'none';
-            // Buscar en el cache el proveedor por ID
             const p = providers.find(prov => prov.id == sel.value);
             if(p) {
                 document.getElementById('provider-name').value = p.name;
                 document.getElementById('provider-phone').value = p.phone;
+                this.loadProductsSelect(p.id);
             }
         }
     },
 
     async renderHistory() {
         const body = document.getElementById('history-body');
-        body.innerHTML = '<tr><td colspan="6">Cargando...</td></tr>';
+        body.innerHTML = '<tr><td colspan="7">Cargando...</td></tr>';
         
         const user = auth.getCurrentUser();
-        // Request history sending role and username to filter on backend securely
         const history = await api.get(`orders.php?role=${encodeURIComponent(user.role)}&user=${encodeURIComponent(user.name)}`) || [];
         
-        window._currentHistory = history; // Cache total received history
+        window._currentHistory = history; 
         
-        // Show/Hide User filter input if admin
         const filterUser = document.getElementById('filter-user');
         if (filterUser) {
             filterUser.style.display = user.role === 'admin' ? 'block' : 'none';
@@ -332,37 +339,98 @@ const ui = {
         const body = document.getElementById('history-body');
         
         if (historyArray.length === 0) {
-            body.innerHTML = '<tr><td colspan="6">No hay pedidos registrados</td></tr>';
+            body.innerHTML = '<tr><td colspan="7">No hay pedidos registrados</td></tr>';
             return;
         }
 
         body.innerHTML = historyArray.map((o) => {
-            // Find real index in total cache for duplicate/details functions
             const originalIdx = window._currentHistory.findIndex(h => h.id === o.id);
             const user = auth.getCurrentUser();
             let adminActions = '';
             
             if (user.role === 'admin') {
                 adminActions = `
-                    <button class="btn-duplicate" style="background:#f39c12; color:white; border-color:#e67e22;" onclick="ui.editOrder(${originalIdx})">Editar</button>
-                    <button class="btn-remove" onclick="ui.deleteOrder(${o.id})">Eliminar</button>
+                    <button class="btn-icon icon-edit" title="Editar" onclick="ui.editOrder(${originalIdx})"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon icon-delete" title="Eliminar" onclick="ui.deleteOrder(${o.id})"><i class="fas fa-trash"></i></button>
                 `;
             }
 
             return `
                 <tr>
+                    <td class="check-col"><input type="checkbox" class="history-check" value="${o.id}" onchange="ui.toggleBulkBtn('history')"></td>
                     <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer"><strong>${o.ref}</strong></td>
                     <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer">${o.date.split(' ')[0]}</td>
                     <td onclick="ui.showDetail(${originalIdx})" style="cursor:pointer">${o.provider}</td>
                     <td class="text-truncate">${o.items.map(i => i.name).join(', ')}</td>
-                    <td>
-                        <button class="btn-duplicate" onclick="ui.duplicate(${originalIdx})">Reutilizar</button>
+                    <td style="white-space: nowrap;">
+                        <button class="btn-icon icon-copy" title="Reutilizar" onclick="ui.duplicate(${originalIdx})"><i class="fas fa-redo"></i></button>
                         ${adminActions}
                     </td>
                     <td>${o.user || 'N/A'}</td>
                 </tr>
             `;
         }).join('');
+    },
+
+    toggleSelectAll(sourceCheckbox, targetClass) {
+        const checkboxes = document.querySelectorAll(`.${targetClass}`);
+        checkboxes.forEach(cb => cb.checked = sourceCheckbox.checked);
+        
+        let type = '';
+        if (targetClass === 'history-check') type = 'history';
+        if (targetClass === 'prov-check') type = 'providers';
+        if (targetClass === 'prod-check') type = 'products';
+        
+        this.toggleBulkBtn(type);
+    },
+
+    toggleBulkBtn(type) {
+        let btnId = '';
+        let cbClass = '';
+        
+        if (type === 'history') { btnId = 'btn-bulk-delete-history'; cbClass = 'history-check'; }
+        if (type === 'providers') { btnId = 'btn-bulk-delete-prov'; cbClass = 'prov-check'; }
+        if (type === 'products') { btnId = 'btn-bulk-delete-prod'; cbClass = 'prod-check'; }
+
+        const checkedCount = document.querySelectorAll(`.${cbClass}:checked`).length;
+        document.getElementById(btnId).style.display = checkedCount > 0 ? 'block' : 'none';
+    },
+
+    async bulkDelete(type) {
+        let cbClass = '';
+        let endpoint = '';
+        
+        if (type === 'history') { cbClass = 'history-check'; endpoint = 'orders.php'; }
+        if (type === 'providers') { cbClass = 'prov-check'; endpoint = 'providers.php'; }
+        if (type === 'products') { cbClass = 'prod-check'; endpoint = 'products.php'; }
+
+        const checkedBoxes = document.querySelectorAll(`.${cbClass}:checked`);
+        const ids = Array.from(checkedBoxes).map(cb => cb.value);
+
+        if (ids.length === 0) return;
+
+        if (confirm(`¿Seguro que deseas eliminar los ${ids.length} elementos seleccionados?`)) {
+            // Eliminar secuencialmente (o en batch si el backend lo soporta, por ahora secuencial por compatibilidad)
+            for (const id of ids) {
+                await api.delete(endpoint, id);
+            }
+            
+            if (type === 'history') this.renderHistory();
+            if (type === 'providers') {
+                await loadCache();
+                await this.renderAdminProviders();
+                this.loadProviders();
+            }
+            if (type === 'products') {
+                await loadCache();
+                await this.renderAdminProducts();
+                this.loadProductsSelect();
+            }
+            
+            this.toggleBulkBtn(type);
+            const theadCb = document.querySelector(`th input[type="checkbox"]`);
+            if (theadCb) theadCb.checked = false;
+        }
     },
 
     async deleteOrder(id) {
@@ -379,10 +447,8 @@ const ui = {
         const o = history[idx];
         editingOrderId = o.id;
         
-        // Deep copy items into current order
         currentOrder = JSON.parse(JSON.stringify(o.items)); 
         
-        // Cargar datos de proveedor
         const pSelect = document.getElementById('provider-select');
         let optionExists = false;
         Array.from(pSelect.options).forEach(opt => {
@@ -400,7 +466,6 @@ const ui = {
             this.handleProviderChange();
         }
 
-        // Toggle buttons
         document.getElementById('send-whatsapp').style.display = 'none';
         document.getElementById('btn-update-order').style.display = 'block';
         document.getElementById('btn-cancel-edit').style.display = 'block';
@@ -413,7 +478,8 @@ const ui = {
         const ref = document.getElementById('filter-ref').value.toLowerCase();
         const prov = document.getElementById('filter-provider').value.toLowerCase();
         const userFilter = document.getElementById('filter-user').value.toLowerCase();
-        const dateFilter = document.getElementById('filter-date').value;
+        const dateStart = document.getElementById('filter-date-start').value;
+        const dateEnd = document.getElementById('filter-date-end').value;
 
         const history = window._currentHistory || [];
         const filtered = history.filter(o => {
@@ -422,10 +488,10 @@ const ui = {
             const matchUser = o.user.toLowerCase().includes(userFilter);
             
             let matchDate = true;
-            if (dateFilter) {
-                // Ensure date format matching (YYYY-MM-DD to backend date output depending on SQL timestamp format)
-                matchDate = o.date.startsWith(dateFilter);
-            }
+            const orderDate = o.date.split(' ')[0]; // YYYY-MM-DD
+            
+            if (dateStart && orderDate < dateStart) matchDate = false;
+            if (dateEnd && orderDate > dateEnd) matchDate = false;
             
             return matchRef && matchProv && matchUser && matchDate;
         });
@@ -437,14 +503,14 @@ const ui = {
         document.getElementById('filter-ref').value = '';
         document.getElementById('filter-provider').value = '';
         document.getElementById('filter-user').value = '';
-        document.getElementById('filter-date').value = '';
+        document.getElementById('filter-date-start').value = '';
+        document.getElementById('filter-date-end').value = '';
         this.renderHistoryTable(window._currentHistory || []);
     },
 
     sortHistory(column) {
         if (!window._currentHistory) return;
         
-        // Determinar dirección del sort
         if (this._lastSortCol === column) {
             this._sortAsc = !this._sortAsc;
         } else {
@@ -456,7 +522,6 @@ const ui = {
             let valA = a[column] ? a[column].toString().toLowerCase() : '';
             let valB = b[column] ? b[column].toString().toLowerCase() : '';
             
-            // Si la columna es fecha, convertir a ms para comparar
             if (column === 'date') {
                 valA = new Date(a[column]).getTime();
                 valB = new Date(b[column]).getTime();
@@ -467,7 +532,6 @@ const ui = {
             return 0;
         });
 
-        // Aplicar los filtros actuales (que también re-renderiza la tabla con el nuevo orden)
         this.filterHistory();
     },
 
@@ -499,9 +563,30 @@ const ui = {
     duplicate(idx) {
         const history = window._currentHistory;
         if(!history || !history[idx]) return;
-        currentOrder = JSON.parse(JSON.stringify(history[idx].items)); // Deep copy
+        currentOrder = JSON.parse(JSON.stringify(history[idx].items)); 
         this.openTab('pedidos');
         orderManager.render();
+    },
+
+    duplicateProduct(id) {
+        const p = cache.products.find(x => x.id == id);
+        if(!p) return;
+        document.getElementById('admin-prod-id').value = ''; // Empty ID means create new
+        document.getElementById('admin-prod-name').value = p.name + ' (Copia)';
+        
+        if(this._tomAdminProdProvider) {
+            this._tomAdminProdProvider.setValue(p.provider_ids_array || (p.provider_id ? [p.provider_id] : []));
+        } else {
+            document.getElementById('admin-prod-provider').value = p.provider_id || '';
+        }
+
+        document.getElementById('admin-prod-family').value = p.family || '';
+        document.getElementById('admin-prod-category').value = p.category || '';
+        document.getElementById('admin-prod-subcategory').value = p.subcategory || '';
+        document.getElementById('admin-prod-unit').value = p.unit || '';
+        document.getElementById('admin-prod-price').value = p.price || '';
+        
+        alert("Producto copiado. Puedes editar los detalles y presionar Guardar para crear el nuevo registro.");
     },
 
     populateSelect(selectId, dbListType, placeholder) {
@@ -509,11 +594,7 @@ const ui = {
         const data = cache.lists[dbListType] || [];
         
         let html = `<option value="">${placeholder}</option>`;
-        
-        // El value siempre es string en DB para family/category, usamos name.
-        // Pero para UI interna mantenemos name
         html += data.map(item => `<option value="${item.name}">${item.name}</option>`).join('');
-        
         html += `<option value="__new__">+ Crear nuevo...</option>`;
         select.innerHTML = html;
         
@@ -529,11 +610,8 @@ const ui = {
                 await api.post('lists.php', { list_type: dbListType, value: newValue });
                 await loadCache();
                 
-                // Regenerar opciones
                 const placeholder = selectElement.options[0].text;
                 this.populateSelect(selectElement.id, dbListType, placeholder);
-                
-                // Dejar seleccionado
                 selectElement.value = newValue;
             } else {
                 selectElement.value = "";
@@ -554,13 +632,14 @@ const ui = {
         const tbody = document.getElementById('admin-prov-list');
         tbody.innerHTML = providers.map((p, idx) => `
             <tr>
+                <td class="check-col"><input type="checkbox" class="prov-check" value="${p.id}" onchange="ui.toggleBulkBtn('providers')"></td>
                 <td>${p.name}</td>
                 <td>${p.phone}</td>
                 <td>${p.city || '-'}</td>
                 <td>${p.family || '-'}</td>
-                <td>
-                    <button class="btn-duplicate" onclick="ui.editAdminProvider(${p.id})">Editar</button>
-                    <button class="btn-remove" onclick="ui.removeAdminProvider(${p.id})">Eliminar</button>
+                <td style="white-space: nowrap;">
+                    <button class="btn-icon icon-edit" title="Editar" onclick="ui.editAdminProvider(${p.id})"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon icon-delete" title="Eliminar" onclick="ui.removeAdminProvider(${p.id})"><i class="fas fa-trash"></i></button>
                 </td>
             </tr>
         `).join('');
@@ -635,7 +714,11 @@ const ui = {
         } else if(type === 'prod') {
             document.getElementById('admin-prod-id').value = '';
             document.getElementById('admin-prod-name').value = '';
-            document.getElementById('admin-prod-provider').value = '';
+            if(this._tomAdminProdProvider) {
+                this._tomAdminProdProvider.clear();
+            } else {
+                document.getElementById('admin-prod-provider').value = '';
+            }
             document.getElementById('admin-prod-family').value = '';
             document.getElementById('admin-prod-category').value = '';
             document.getElementById('admin-prod-subcategory').value = '';
@@ -657,14 +740,14 @@ const ui = {
     },
     async renderAdminUsers() {
         const users = await api.get('users.php') || [];
-        window._currentUsers = users; // Cache para edición local
+        window._currentUsers = users; 
         const tbody = document.getElementById('admin-user-list');
         tbody.innerHTML = users.map((u) => `
             <tr>
                 <td>${u.name}</td><td>${u.username}</td><td>${u.role}</td>
                 <td>
-                    <button class="btn-duplicate" onclick="ui.editAdminUser(${u.id})">Editar</button>
-                    <button class="btn-remove" onclick="ui.removeAdminUser(${u.id})">Eliminar</button>
+                    <button class="btn-icon icon-edit" title="Editar" onclick="ui.editAdminUser(${u.id})"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon icon-delete" title="Eliminar" onclick="ui.removeAdminUser(${u.id})"><i class="fas fa-trash"></i></button>
                 </td>
             </tr>
         `).join('');
@@ -697,7 +780,7 @@ const ui = {
         document.getElementById('admin-user-id').value = u.id;
         document.getElementById('admin-user-fullname').value = u.name;
         document.getElementById('admin-user-name').value = u.username;
-        document.getElementById('admin-user-pass').value = ''; // No cargar contraseña existente por seguridad
+        document.getElementById('admin-user-pass').value = ''; 
         document.getElementById('admin-user-role').value = u.role;
     },
     async removeAdminUser(id) {
@@ -717,7 +800,19 @@ const ui = {
         this.populateSelect('admin-prod-unit', 'units', 'Ud. Medida');
         
         const providers = cache.providers;
-        document.getElementById('admin-prod-provider').innerHTML = '<option value="">Seleccione Proveedor</option>' + providers.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        const selectProv = document.getElementById('admin-prod-provider');
+        selectProv.innerHTML = providers.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+
+        if(!this._tomAdminProdProvider) {
+            this._tomAdminProdProvider = new TomSelect("#admin-prod-provider", {
+                plugins: ['remove_button'],
+                maxItems: null,
+                placeholder: "Seleccione Proveedores...",
+                sortField: { field: "text", direction: "asc" }
+            });
+        } else {
+            this._tomAdminProdProvider.sync();
+        }
 
         await this.renderAdminProducts();
     },
@@ -728,11 +823,13 @@ const ui = {
         tbody.innerHTML = products.map((p) => {
             return `
             <tr>
+                <td class="check-col"><input type="checkbox" class="prod-check" value="${p.id}" onchange="ui.toggleBulkBtn('products')"></td>
                 <td>${p.name}</td><td>${p.provider_name || '-'}</td><td>${p.family || '-'}</td>
                 <td>${p.unit}</td><td>$${p.price || 0}</td>
-                <td>
-                    <button class="btn-duplicate" onclick="ui.editAdminProduct(${p.id})">Editar</button>
-                    <button class="btn-remove" onclick="ui.removeAdminProduct(${p.id})">Eliminar</button>
+                <td style="white-space: nowrap;">
+                    <button class="btn-icon icon-copy" title="Duplicar" onclick="ui.duplicateProduct(${p.id})"><i class="fas fa-copy"></i></button>
+                    <button class="btn-icon icon-edit" title="Editar" onclick="ui.editAdminProduct(${p.id})"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon icon-delete" title="Eliminar" onclick="ui.removeAdminProduct(${p.id})"><i class="fas fa-trash"></i></button>
                 </td>
             </tr>
         `}).join('');
@@ -740,7 +837,15 @@ const ui = {
     async saveAdminProduct() {
         const id = document.getElementById('admin-prod-id').value;
         const name = document.getElementById('admin-prod-name').value;
-        const provider_id = document.getElementById('admin-prod-provider').value;
+
+        let provider_ids = [];
+        if(this._tomAdminProdProvider) {
+            provider_ids = this._tomAdminProdProvider.getValue();
+        } else {
+            const sel = document.getElementById('admin-prod-provider');
+            provider_ids = Array.from(sel.selectedOptions).map(opt => opt.value);
+        }
+
         const family = document.getElementById('admin-prod-family').value;
         const category = document.getElementById('admin-prod-category').value;
         const subcategory = document.getElementById('admin-prod-subcategory').value;
@@ -749,7 +854,7 @@ const ui = {
 
         if(!name || !unit) return alert("Nombre y Unidad son obligatorios");
 
-        const payload = { name, provider_id, family, category, subcategory, unit, price };
+        const payload = { name, provider_ids, family, category, subcategory, unit, price };
 
         if(id) {
             payload.id = id;
@@ -769,7 +874,13 @@ const ui = {
         if(!p) return;
         document.getElementById('admin-prod-id').value = p.id;
         document.getElementById('admin-prod-name').value = p.name;
-        document.getElementById('admin-prod-provider').value = p.provider_id || '';
+        
+        if(this._tomAdminProdProvider) {
+            this._tomAdminProdProvider.setValue(p.provider_ids_array || (p.provider_id ? [p.provider_id] : []));
+        } else {
+            document.getElementById('admin-prod-provider').value = p.provider_id || '';
+        }
+        
         document.getElementById('admin-prod-family').value = p.family || '';
         document.getElementById('admin-prod-category').value = p.category || '';
         document.getElementById('admin-prod-subcategory').value = p.subcategory || '';
@@ -785,37 +896,58 @@ const ui = {
         }
     },
 
-    // --- CRUD LISTAS (Reemplaza Formas de Pago, se generaliza por ahora solo muestro Formas de Pago si se requiere o delegar al select dinámico)
-    // El frontend viejo tenia un modal entero para pagos. Lo podemos seguir usando contra list_options:
+    // --- CRUD LISTAS DINÁMICAS ---
     async openPaymentManager() {
         document.getElementById('modal-pagos').style.display = 'block';
+        document.getElementById('admin-pay-id').value = '';
+        document.getElementById('admin-pay-name').value = '';
         await this.renderAdminPayments();
     },
     async renderAdminPayments() {
-        await loadCache(); // Refrescar listas
-        const payments = cache.lists['payment_methods'] || [];
+        await loadCache(); 
+        const type = document.getElementById('admin-list-type').value;
+        const listItems = cache.lists[type] || [];
         const tbody = document.getElementById('admin-pay-list');
-        tbody.innerHTML = payments.map((p) => `
+        
+        tbody.innerHTML = listItems.map((p) => `
             <tr>
                 <td>${p.name}</td>
-                <td><button class="btn-remove" onclick="ui.removeAdminPayment(${p.id})">Eliminar</button></td>
+                <td style="white-space: nowrap; width: 100px;">
+                    <button class="btn-icon icon-edit" title="Editar" onclick="ui.editAdminPayment(${p.id}, '${p.name}')"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon icon-delete" title="Eliminar" onclick="ui.removeAdminPayment(${p.id})"><i class="fas fa-trash"></i></button>
+                </td>
             </tr>
         `).join('');
     },
     async saveAdminPayment() {
+        const id = document.getElementById('admin-pay-id').value;
         const name = document.getElementById('admin-pay-name').value;
+        const type = document.getElementById('admin-list-type').value;
         if(!name) return;
-        await api.post('lists.php', { list_type: 'payment_methods', value: name });
+
+        if (id) {
+            await api.put('lists.php', { id, list_type: type, value: name });
+        } else {
+            await api.post('lists.php', { list_type: type, value: name });
+        }
+
+        document.getElementById('admin-pay-id').value = '';
         document.getElementById('admin-pay-name').value = '';
         await this.renderAdminPayments();
     },
+    editAdminPayment(id, name) {
+        document.getElementById('admin-pay-id').value = id;
+        document.getElementById('admin-pay-name').value = name;
+    },
     async removeAdminPayment(id) {
-        await api.delete('lists.php', id);
-        await this.renderAdminPayments();
+        if(confirm("¿Eliminar este elemento?")) {
+            await api.delete('lists.php', id);
+            await this.renderAdminPayments();
+        }
     }
 };
 
-// --- IMPORTACIÓN Y EXPORTACIÓN CSV (Adaptado a DB Real) ---
+// --- IMPORTACIÓN Y EXPORTACIÓN CSV ---
 const csv = {
     async export(type) {
         let data = [];
@@ -830,7 +962,6 @@ const csv = {
             const user = auth.getCurrentUser();
             const history = await api.get(`orders.php?role=${encodeURIComponent(user.role)}&user=${encodeURIComponent(user.name)}`) || [];
             
-            // Aplanar el historial para CSV (resumen)
             data = history.map(h => ({
                 ref: h.ref, date: h.date, provider: h.provider, user: h.user, 
                 items: h.items.map(i => `${i.name} (${i.qty} ${i.unit})`).join(' | ')
@@ -840,7 +971,6 @@ const csv = {
 
         if(data.length === 0) return alert("No hay datos para exportar.");
 
-        // Obtener headers dinámicos desde las llaves del primer objeto
         const headers = Object.keys(data[0]);
         const csvRows = [];
         csvRows.push(headers.join(';'));
@@ -861,11 +991,9 @@ const csv = {
         a.click();
     },
 
-    // Parseador básico de CSV que soporta comas y punto y coma, así como valores entrecomillados
     parseCSV(text) {
         let p = '', row = [''], ret = [row], i = 0, r = 0, s = !0, l;
         
-        // Detect delimiter (comma or semicolon)
         const firstLine = text.split('\n')[0];
         let delimiter = ',';
         if ((firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length) {
@@ -945,10 +1073,47 @@ const csv = {
             const parsedData = csv.parseCSV(text);
             if(parsedData.length < 2) return alert("El archivo está vacío o no tiene datos válidos.");
 
-            const headers = parsedData[0].map(h => h.trim().toLowerCase());
+            // A veces el CSV viene con BOM o espacios extra en la primera columna, asegurémonos de limpiar
+            let headers = parsedData[0].map(h => h.replace(/^\uFEFF/, '').trim().toLowerCase());
+            
+            // Diccionario de mapeo para soportar nombres de columnas en español desde Excel
+            const headerMap = {
+                'proveedor': 'name',
+                'nombre': 'name', // En caso de que se use 'nombre' genérico o para el contacto, priorizamos 'proveedor' para name si existe
+                'cif': 'cif',
+                'familia': 'family',
+                'categoría': 'category',
+                'domicilio': 'address',
+                'contacto': 'contact',
+                'teléfono': 'phone',
+                'telefono': 'phone',
+                'tel': 'phone',
+                'email': 'email',
+                'correo': 'email',
+                'ciudad': 'city',
+                'pago': 'payment',
+                // Para productos
+                'producto': 'name',
+                'unidad': 'unit',
+                'ud': 'unit',
+                'precio': 'price',
+                'subcategoría': 'subcategory'
+            };
+
+            // Ajuste específico si hay 'proveedor' (name comercial) y 'nombre' (razón social/contacto)
+            if (headers.includes('proveedor') && headers.includes('nombre')) {
+                headerMap['nombre'] = 'contact'; // Forzamos que 'nombre' sea contacto si ya hay 'proveedor'
+            }
+
+            // Mapear los headers a los nombres esperados por la base de datos
+            headers = headers.map(h => headerMap[h] || h);
+
             let count = 0;
 
             csv.showLoading(true, `Importando ${type === 'products' ? 'productos' : 'proveedores'}...`);
+            
+            // Pausa breve para permitir que el navegador dibuje el overlay de carga
+            await new Promise(resolve => setTimeout(resolve, 50));
 
             for(let i=1; i < parsedData.length; i++) {
                 const values = parsedData[i];
@@ -959,8 +1124,8 @@ const csv = {
                     }
                 });
                 
-                // Si la fila está mayormente vacía, saltar
-                if (!obj.name) continue;
+                // Si la fila no tiene nombre válido, saltar
+                if (!obj.name || obj.name.trim() === '') continue;
 
                 // Verificación de duplicados básicos en caché
                 let isDuplicate = false;
@@ -968,22 +1133,38 @@ const csv = {
                 if (type === 'providers' && cache.providers.find(p => p.name.toLowerCase() === obj.name.toLowerCase())) isDuplicate = true;
 
                 if (!isDuplicate) {
-                    // POST individual por cada item validado
-                    if (type === 'products') await api.post('products.php', obj);
-                    if (type === 'providers') await api.post('providers.php', obj);
+                    if (type === 'products') {
+                        // Si el proveedor está especificado por nombre en el CSV pero no tenemos su ID
+                        if (obj.provider_name && !obj.provider_id) {
+                            const prov = cache.providers.find(p => p.name.toLowerCase() === obj.provider_name.toLowerCase());
+                            if (prov) {
+                                obj.provider_id = prov.id;
+                            }
+                        }
+                        await api.post('products.php', obj);
+                    }
+                    if (type === 'providers') {
+                        // El backend requiere 'phone', si no viene en el CSV, le ponemos un guión temporal
+                        if (!obj.phone) obj.phone = '-';
+                        
+                        await api.post('providers.php', obj);
+                    }
                     count++;
                 }
                 
+                // Refrescar UI ocasionalmente durante loops largos
                 if (i % 10 === 0) {
                     csv.showLoading(true, `Procesando ${i} de ${parsedData.length - 1}...`);
+                    await new Promise(resolve => setTimeout(resolve, 10)); // Yield to main thread
                 }
             }
 
-            const msg = count === 0 && parsedData.length > 1 
-                ? `No se importaron datos. Es posible que los registros ya existan en la base de datos o el formato sea incorrecto.` 
-                : `Se han importado ${count} nuevos registros (se omitieron los repetidos).`;
-                
             csv.showLoading(false);
+            
+            const msg = count === 0 && parsedData.length > 1 
+                ? `No se importaron datos. Verifique que los nombres de columnas estén correctos ("name", "unit", etc) o es posible que los registros ya existan en la base de datos.` 
+                : `Se han importado ${count} nuevos registros (se omitieron los repetidos o vacíos).`;
+                
             alert(msg);
             
             fileInput.value = '';
@@ -999,6 +1180,5 @@ const csv = {
 
 // INICIALIZACIÓN
 (function init() {
-    // Ya no hacemos seedData local, auth.checkAuth() carga la cache del backend si hay sesion
     auth.checkAuth();
 })();
